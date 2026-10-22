@@ -1,3 +1,9 @@
+from django.contrib import admin
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+from django.urls import path, include
+
+
 """
 URL configuration for roots project.
 
@@ -14,9 +20,18 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
-from django.urls import path
+
+
+@login_required
+def profile(request):
+    return JsonResponse({
+        "message": "You are logged in!",
+        "email": request.user.email,
+    })
+
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path("admin/", admin.site.urls),
+    path("accounts/profile/", profile),
+    path("accounts/", include("allauth.urls")),
 ]
