@@ -1,0 +1,147 @@
+"""Schema tests for DB-2, DB-3, DB-6, FR-5, FR-16, FR-17, FR-21, SA-2."""
+
+from datetime import date, timedelta
+
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
+from django.test import TestCase
+from django.utils import timezone
+
+from .models import (
+    FamilyMember,
+    FamilyTree,
+    Invitation,
+    Relationship,
+    RelationshipType,
+    SuggestionStatus,
+    SuggestRequest,
+    TreeCollaborator,
+)
+from .services import OutdatedSuggestion, approve_suggestion
+
+User = get_user_model()
+
+
+class SchemaTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user("owner", email="owner@example.com")
+        self.collab = User.objects.create_user("collab", email="collab@example.com")
+        self.tree = FamilyTree.objects.create(name="Test Family", owner=self.owner)
+        self.other_tree = FamilyTree.objects.create(name="Other", owner=self.owner)
+        self.grandpa = FamilyMember.objects.create(tree=self.tree, first_name="Abe", last_name="Doe")
+        self.dad = FamilyMember.objects.create(tree=self.tree, first_name="Bob", last_name="Doe")
+        self.kid = FamilyMember.objects.create(tree=self.tree, first_name="Cal", last_name="Doe")
+        self.stranger = FamilyMember.objects.create(tree=self.other_tree, first_name="S", last_name="T")
+        for parent, child in [(self.grandpa, self.dad), (self.dad, self.kid)]:
+            Relationship.objects.create(tree=self.tree, member1=parent, member2=child,
+                                        relationship_type=RelationshipType.PARENT)
+        self.invite, self.raw_token = Invitation.create_for(self.tree, self.owner)
+
+    def join(self):
+        return TreeCollaborator.objects.create(tree=self.tree, user=self.collab, invitation=self.invite)
+
+    # DB-3 / FR-16
+    def test_death_before_birth_rejected(self):
+        m = FamilyMember(tree=self.tree, first_name="X", last_name="Y",
+                         birth_date=date(2000, 1, 1), death_date=date(1990, 1, 1))
+        with self.assertRaises(ValidationError):
+            m.full_clean()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            m.save()
+
+    # DB-3 / FR-17
+    def test_own_ancestor_rejected(self):
+        r = Relationship(tree=self.tree, member1=self.kid, member2=self.grandpa,
+                         relationship_type=RelationshipType.PARENT)
+        with self.assertRaises(ValidationError):
+            r.full_clean()
+
+    # DB-2 (Django check)
+    def test_cross_tree_relationship_rejected_by_clean(self):
+        r = Relationship(tree=self.tree, member1=self.kid, member2=self.stranger,
+                         relationship_type=RelationshipType.SPOUSE)
+        with self.assertRaises(ValidationError):
+            r.full_clean()
+
+    # DB-2 (composite FK in PostgreSQL, migration 0002)
+    def test_cross_tree_relationship_rejected_by_database(self):
+        if connection.vendor != "postgresql":
+            self.skipTest("composite FKs are PostgreSQL-only")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Relationship.objects.create(tree=self.tree, member1=self.kid, member2=self.stranger,
+                                        relationship_type=RelationshipType.SIBLING)
+        other_invite, _ = Invitation.create_for(self.other_tree, self.owner)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            TreeCollaborator.objects.create(tree=self.tree, user=self.collab, invitation=other_invite)
+
+    # FR-5
+    def test_child_stored_as_reverse_parent(self):
+        m1, m2, t = Relationship.normalize(self.kid, self.dad, "CHILD")
+        self.assertEqual((m1, m2, t), (self.dad, self.kid, RelationshipType.PARENT))
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Relationship.objects.create(tree=self.tree, member1=self.kid, member2=self.dad,
+                                        relationship_type="CHILD")
+
+    def test_spouse_pair_not_duplicated_and_marriage_date_only_for_spouse(self):
+        spouse = FamilyMember.objects.create(tree=self.tree, first_name="Dee", last_name="Roe")
+        Relationship.objects.create(tree=self.tree, member1=self.dad, member2=spouse,
+                                    relationship_type=RelationshipType.SPOUSE,
+                                    start_date=date(1980, 6, 1))
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Relationship.objects.create(tree=self.tree, member1=spouse, member2=self.dad,
+                                        relationship_type=RelationshipType.SPOUSE)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Relationship.objects.create(tree=self.tree, member1=self.kid, member2=spouse,
+                                        relationship_type=RelationshipType.SIBLING,
+                                        start_date=date(1990, 1, 1))
+
+    # DB-6
+    def test_delete_tree_cascades(self):
+        self.join()
+        SuggestRequest.objects.create(tree=self.tree, submitted_by=self.collab,
+                                      change_type="ADD_MEMBER", description="new", proposed_data={})
+        self.tree.delete()
+        for model in (FamilyMember, Relationship, Invitation, TreeCollaborator, SuggestRequest):
+            self.assertFalse(model.objects.filter(tree=self.tree.pk).exists(), model.__name__)
+
+    # SA-2, FR-10, FR-19
+    def test_invitation_hashed_7_day_expiry_and_revocable(self):
+        self.assertGreaterEqual(len(self.raw_token), 32)
+        self.assertNotEqual(self.invite.token_hash, self.raw_token)
+        lifetime = self.invite.expires_at - timezone.now()
+        self.assertTrue(timedelta(days=6, hours=23) < lifetime <= timedelta(days=7))
+        self.assertEqual(Invitation.find_valid(self.raw_token), self.invite)
+        self.invite.revoke()
+        self.assertFalse(self.invite.is_active)
+        self.assertIsNone(Invitation.find_valid(self.raw_token))
+
+    def test_expired_invitation_invalid(self):
+        self.invite.expires_at = timezone.now() - timedelta(seconds=1)
+        self.invite.save()
+        self.assertIsNone(Invitation.find_valid(self.raw_token))
+
+    # DB-4
+    def test_accessible_trees(self):
+        self.assertFalse(FamilyTree.objects.accessible_to(self.collab).exists())
+        self.join()
+        self.assertEqual(list(FamilyTree.objects.accessible_to(self.collab)), [self.tree])
+
+    # FR-21, FR-22
+    def test_outdated_suggestion(self):
+        self.join()
+        s1 = SuggestRequest.objects.create(tree=self.tree, submitted_by=self.collab,
+                                           change_type="UPDATE_MEMBER", description="fix name",
+                                           target_member=self.kid, proposed_data={"first_name": "Cali"})
+        s2 = SuggestRequest.objects.create(tree=self.tree, submitted_by=self.collab,
+                                           change_type="UPDATE_MEMBER", description="add birth",
+                                           target_member=self.kid,
+                                           proposed_data={"birth_date": "2001-02-03"})
+        approve_suggestion(s1.pk, self.owner)
+        s2.refresh_from_db()
+        self.assertEqual(s2.status, SuggestionStatus.OUTDATED)
+        with self.assertRaises(OutdatedSuggestion):
+            approve_suggestion(s2.pk, self.owner)
+        approve_suggestion(s2.pk, self.owner, confirm_outdated=True)
+        self.kid.refresh_from_db()
+        self.assertEqual((self.kid.first_name, self.kid.birth_date), ("Cali", date(2001, 2, 3)))
