@@ -6,7 +6,10 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APITestCase
 
 from .models import (
     FamilyMember,
@@ -145,3 +148,108 @@ class SchemaTests(TestCase):
         approve_suggestion(s2.pk, self.owner, confirm_outdated=True)
         self.kid.refresh_from_db()
         self.assertEqual((self.kid.first_name, self.kid.birth_date), ("Cali", date(2001, 2, 3)))
+
+
+class TreeListCreateRequirementTests(APITestCase):
+    """SRS tests for the authenticated tree list/create endpoint."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("api-user", email="api-user@example.com")
+        self.tree_owner = User.objects.create_user(
+            "tree-owner", email="tree-owner@example.com"
+        )
+        self.outsider = User.objects.create_user(
+            "outsider", email="outsider@example.com"
+        )
+        self.owned_tree = FamilyTree.objects.create(
+            name="User-Owned Tree", owner=self.user
+        )
+        self.shared_tree = FamilyTree.objects.create(
+            name="Shared Tree", owner=self.tree_owner
+        )
+        self.private_tree = FamilyTree.objects.create(
+            name="Private Tree", owner=self.outsider
+        )
+        invitation, _ = Invitation.create_for(self.shared_tree, self.tree_owner)
+        TreeCollaborator.objects.create(
+            tree=self.shared_tree,
+            user=self.user,
+            invitation=invitation,
+        )
+        self.url = reverse("family-tree-list-create")
+
+    # FR-3: A logged-in user can create a named tree and becomes its Tree Owner.
+    # IR-7: Frontend-backend data is exchanged as JSON.
+    def test_fr3_ir7_logged_in_user_creates_tree_and_becomes_owner(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {"name": "Smith Family", "description": "Our family history"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response["Content-Type"], "application/json")
+        created_tree = FamilyTree.objects.get(pk=response.data["id"])
+        self.assertEqual(created_tree.name, "Smith Family")
+        self.assertEqual(created_tree.description, "Our family history")
+        self.assertEqual(created_tree.owner, self.user)
+
+    # FR-3: A tree description is optional.
+    def test_fr3_logged_in_user_creates_tree_without_description(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {"name": "Description Optional"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_tree = FamilyTree.objects.get(pk=response.data["id"])
+        self.assertIsNone(created_tree.description)
+        self.assertEqual(created_tree.owner, self.user)
+
+    # FR-3: Tree creation is available to logged-in users only.
+    def test_fr3_logged_out_user_cannot_create_tree(self):
+        response = self.client.post(
+            self.url,
+            {"name": "Unauthorized Tree"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(FamilyTree.objects.filter(name="Unauthorized Tree").exists())
+
+    # FR-3 / DB-2: The authenticated user becomes the one and only Tree Owner;
+    # a client-supplied owner ID cannot assign ownership to another account.
+    def test_fr3_db2_client_cannot_assign_a_different_tree_owner(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {"name": "Owner Protected", "owner": self.outsider.pk},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_tree = FamilyTree.objects.get(pk=response.data["id"])
+        self.assertEqual(created_tree.owner, self.user)
+
+    # DB-4 / DC-4: A user reads only trees they own or collaborate on.
+    def test_db4_dc4_user_reads_only_owned_and_collaborated_trees(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url, HTTP_ACCEPT="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {tree["id"] for tree in response.data}
+        self.assertEqual(returned_ids, {self.owned_tree.pk, self.shared_tree.pk})
+        self.assertNotIn(self.private_tree.pk, returned_ids)
+
+    # DB-4 / DC-4: Tree data is not visible without an authenticated account.
+    def test_db4_dc4_logged_out_user_cannot_read_tree_data(self):
+        response = self.client.get(self.url, HTTP_ACCEPT="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

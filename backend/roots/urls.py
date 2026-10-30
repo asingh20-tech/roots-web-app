@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.urls import path, include
+from trees.views import FamilyTreeListCreateView
 
 
 """
@@ -34,4 +35,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/profile/", profile),
     path("accounts/", include("allauth.urls")),
+    path("trees/", FamilyTreeListCreateView.as_view(), name="family-tree-list-create"),
 ]
