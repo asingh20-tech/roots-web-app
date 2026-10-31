@@ -27,6 +27,8 @@ User = get_user_model()
 
 
 class SchemaTests(TestCase):
+    #setUp() is a special testing method that Django runs before each test method.
+    #It creates the sample data needed for your tests.
     def setUp(self):
         self.owner = User.objects.create_user("owner", email="owner@example.com")
         self.collab = User.objects.create_user("collab", email="collab@example.com")
@@ -72,9 +74,11 @@ class SchemaTests(TestCase):
         if connection.vendor != "postgresql":
             self.skipTest("composite FKs are PostgreSQL-only")
         with self.assertRaises(IntegrityError), transaction.atomic():
+            #Tries to connect two people from different family trees. PostgreSQL should reject this.
             Relationship.objects.create(tree=self.tree, member1=self.kid, member2=self.stranger,
                                         relationship_type=RelationshipType.SIBLING)
         other_invite, _ = Invitation.create_for(self.other_tree, self.owner)
+        # Tries to join the other tree with an invitation from a different tree. PostgreSQL should reject this.
         with self.assertRaises(IntegrityError), transaction.atomic():
             TreeCollaborator.objects.create(tree=self.tree, user=self.collab, invitation=other_invite)
 

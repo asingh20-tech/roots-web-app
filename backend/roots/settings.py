@@ -18,9 +18,10 @@ load_dotenv(BASE_DIR.parent / '.env')              # .../roots-web-app/.env
 
 # Security
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
-DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'False'
 ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h]
 
+#DJANGO_ALLOWED_HOSTS is not in the env file so it will default to localhost 
 
 # Application definition
 
@@ -71,7 +72,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'roots.wsgi.application'
-
+# how to start your Django application and send HTTP requests to it. "Web Server Gateway Interface."
 
 # Users — must be set before the first migrate
 AUTH_USER_MODEL = 'accounts.User'
