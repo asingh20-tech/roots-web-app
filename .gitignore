@@ -20,3 +20,5 @@ build/
 # SQLite
 *.sqlite3
 *.sqlite3-journal
+db.sqlite3
+.env.vscode/
