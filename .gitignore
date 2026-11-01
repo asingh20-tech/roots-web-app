@@ -1,5 +1,18 @@
+# macOS files
+.DS_Store
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python
 .venv/
+venv/
 __pycache__/
 *.pyc
-db.sqlite3
-.env.vscode/
+
+# Node.js
+node_modules/
+dist/
+build/
