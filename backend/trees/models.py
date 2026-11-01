@@ -10,6 +10,7 @@ automatically. Call instance.full_clean() before saving (or in the
 serializer's validate()) so FR-16/FR-17 and DB-2 are enforced.
 """
 
+
 import hashlib
 import os
 import secrets
@@ -58,7 +59,7 @@ class FamilyTreeQuerySet(models.QuerySet):
 class FamilyTree(models.Model):
     # DB-2: exactly one owner. DB-6: deleting a tree cascades to all its rows.
     owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_trees"
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_trees" 
     )
     name = models.CharField(max_length=100)
     description = models.TextField(null=True, blank=True)
@@ -94,7 +95,7 @@ class Invitation(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_column="created_by",
         related_name="invitations_created",
     )
-    token_hash = models.CharField(max_length=64, unique=True, editable=False)
+    token_hash = models.CharField(max_length=64, unique=True, editable=False)#This is useful because if someone gains read access to your invitation database, they don't immediately get usable invitation tokens.
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
@@ -230,6 +231,9 @@ class FamilyMember(models.Model):
         if self.birth_date and self.death_date and self.death_date < self.birth_date:
             raise ValidationError({"death_date": "Death date cannot be before birth date."})
 
+#I have to check --> this version increment happens when this instance's save() runs, not necessarily on every kind of database update. Operations like QuerySet.update() bypass this method. 
+# Also, using save(update_fields=...) can leave the incremented version unsaved unless version is included.
+
     def save(self, *args, **kwargs):
         adding = self._state.adding
         if not adding:
@@ -280,19 +284,22 @@ class Relationship(models.Model):
             models.CheckConstraint(
                 condition=~Q(member1=F("member2")), name="relationship_not_self"
             ),
+            #Only declared relationship types can be stored
             models.CheckConstraint(
                 condition=Q(relationship_type__in=RelationshipType.values),
                 name="relationship_type_valid",
             ),
+            #Marriage date is only allowed for spouse relationships
             models.CheckConstraint(
                 condition=Q(start_date__isnull=True) | Q(relationship_type=RelationshipType.SPOUSE),
                 name="start_date_only_for_spouse",
             ),
+            #Prevents identical member-pair/type combinations
             models.UniqueConstraint(
                 fields=["member1", "member2", "relationship_type"],
                 name="unique_relationship",
             ),
-            # One parent link (biological or adoptive) per parent/child pair.
+            # Prevents duplicate biological/adoptive parent links for the same ordered pair
             models.UniqueConstraint(
                 fields=["member1", "member2"],
                 condition=Q(relationship_type__in=PARENT_TYPES),
@@ -317,7 +324,7 @@ class Relationship(models.Model):
             self.member1, self.member2 = self.member2, self.member1
         if not self.tree_id and self.member1_id:
             self.tree_id = self.member1.tree_id
-        super().save(*args, **kwargs)
+        super().save(*args, **kwargs) #it invokes the parent class's save functionality.
 
     def clean(self):
         if not (self.member1_id and self.member2_id):
@@ -330,6 +337,7 @@ class Relationship(models.Model):
         if self.start_date and self.relationship_type != RelationshipType.SPOUSE:
             raise ValidationError({"start_date": "Only a Spouse relationship can have a marriage date."})
         # FR-17 / DB-3: the parent must not already be a descendant of the child.
+        #prevents cycles in parent-child relationships
         if self.relationship_type in PARENT_TYPES and self.member2_id in self.ancestor_ids(
             self.member1_id, self.tree_id, exclude_pk=self.pk
         ):
@@ -344,7 +352,9 @@ class Relationship(models.Model):
         parents_of = {}
         for parent_id, child_id in edges.values_list("member1_id", "member2_id"):
             parents_of.setdefault(child_id, []).append(parent_id)
-        seen, stack = set(), [member_id]
+        seen, stack = set(), [member_id] #seen: Stores all ancestor IDs already discovered.
+                                         #stack: Stores members whose parents we still need to explore.
+        #DFS guyyss
         while stack:
             for parent_id in parents_of.get(stack.pop(), []):
                 if parent_id not in seen:
