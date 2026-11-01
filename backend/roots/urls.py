@@ -3,6 +3,9 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.urls import path, include
 from trees.views import FamilyTreeListCreateView
+from trees.views import FamilyTreeDetailView
+from trees.views import FamilyMemberListView
+from trees.views import RelationshipListView
 
 
 """
@@ -35,5 +38,8 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/profile/", profile),
     path("accounts/", include("allauth.urls")),
-    path("trees/", FamilyTreeListCreateView.as_view(), name="family-tree-list-create"),
+    path("api/trees/", FamilyTreeListCreateView.as_view(), name="family-tree-list-create"),
+    path("api/trees/<int:pk>/", FamilyTreeDetailView.as_view(), name="family-tree-detail"),
+    path("api/trees/<int:tree_id>/members/", FamilyMemberListView.as_view(), name="family-member-list"),
+    path("api/trees/<int:tree_id>/relationships/", RelationshipListView.as_view(), name="relationship-list"),
 ]
