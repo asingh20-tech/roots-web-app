@@ -257,3 +257,66 @@ class TreeListCreateRequirementTests(APITestCase):
         response = self.client.get(self.url, HTTP_ACCEPT="application/json")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TreeReadEndpointTests(APITestCase):
+    """SRS tests for tree detail, member list, and relationship list endpoints (DB-4, DC-4, FR-9)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("reader", email="reader@example.com")
+        self.outsider = User.objects.create_user("stranger", email="stranger@example.com")
+        self.tree = FamilyTree.objects.create(name="Mine", owner=self.user)
+        self.private_tree = FamilyTree.objects.create(name="Not Mine", owner=self.outsider)
+        self.mom = FamilyMember.objects.create(tree=self.tree, first_name="Ann", last_name="Lee")
+        self.son = FamilyMember.objects.create(tree=self.tree, first_name="Ben", last_name="Lee")
+        self.rel = Relationship.objects.create(tree=self.tree, member1=self.mom, member2=self.son,
+                                               relationship_type=RelationshipType.PARENT)
+        hidden = FamilyMember.objects.create(tree=self.private_tree, first_name="X", last_name="Y")
+        self.hidden_id = hidden.pk
+
+    # DB-4: owner can read their tree
+    def test_db4_user_retrieves_own_tree(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("family-tree-detail", args=[self.tree.pk]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], "Mine")
+
+    # DB-4 / DC-4: another user's tree is hidden (404, so its existence isn't leaked)
+    def test_db4_dc4_user_cannot_retrieve_other_tree(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("family-tree-detail", args=[self.private_tree.pk]))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # FR-9: members of an accessible tree are listed with full_name
+    def test_fr9_lists_members_of_accessible_tree(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("family-member-list", args=[self.tree.pk]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({m["full_name"] for m in response.data}, {"Ann Lee", "Ben Lee"})
+        self.assertNotIn(self.hidden_id, {m["id"] for m in response.data})
+
+    # DB-4 / DC-4: members of an inaccessible tree are not returned
+    def test_db4_dc4_cannot_list_members_of_other_tree(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("family-member-list", args=[self.private_tree.pk]))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # FR-7: relationships of an accessible tree are listed
+    def test_fr7_lists_relationships_of_accessible_tree(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("relationship-list", args=[self.tree.pk]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["relationship_type"], "PARENT")
+
+    # DB-4 / DC-4: relationships of an inaccessible tree are not returned
+    def test_db4_dc4_cannot_list_relationships_of_other_tree(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("relationship-list", args=[self.private_tree.pk]))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # DB-4: all read endpoints require login
+    def test_db4_logged_out_user_blocked_on_read_endpoints(self):
+        for name in ("family-tree-detail", "family-member-list", "relationship-list"):
+            response = self.client.get(reverse(name, args=[self.tree.pk]))
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, name)
