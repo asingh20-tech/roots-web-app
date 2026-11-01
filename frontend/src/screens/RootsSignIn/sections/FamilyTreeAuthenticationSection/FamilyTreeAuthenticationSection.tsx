@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 
 const familyNodes = [
   {
@@ -16,15 +15,9 @@ const familyNodes = [
 const authenticationProviders = [
   {
     name: "Continue with Google",
-    href: "/roots-u183-google-signu45in-demonstration",
+    href: "http://localhost:8000/accounts/google/login/",
     logo: "/img/provider-logo-2.svg",
     className: "bg-[#4a5e47] border-[#4a5e47] text-[#faf8f4]",
-  },
-  {
-    name: "Continue with Apple",
-    href: "/roots-u183-google-signu45in-demonstration",
-    logo: "/img/provider-logo-3.svg",
-    className: "bg-[#faf8f4] border-[#c8bfa8] text-[#2e3b2c]",
   },
 ];
 
@@ -104,10 +97,10 @@ export const FamilyTreeAuthenticationSection = (): JSX.Element => {
             className="flex flex-col items-start gap-3.5 relative self-stretch w-full flex-[0_0_auto]"
           >
             {authenticationProviders.map((provider) => (
-              <Link
+              <a
                 key={provider.name}
                 className={`flex h-[58px] items-center justify-center relative self-stretch w-full rounded-md overflow-hidden border border-solid ${provider.className}`}
-                to={provider.href}
+                href={provider.href}
                 aria-label={provider.name}
               >
                 <img
@@ -118,7 +111,7 @@ export const FamilyTreeAuthenticationSection = (): JSX.Element => {
                 <span className="[font-family:'Inter',Helvetica] font-medium text-[15px] tracking-[0.20px] leading-[normal] whitespace-nowrap">
                   {provider.name}
                 </span>
-              </Link>
+              </a>
             ))}
           </nav>
           <div className="gap-5 self-stretch w-full flex flex-col items-start relative flex-[0_0_auto]">
@@ -143,19 +136,6 @@ export const FamilyTreeAuthenticationSection = (): JSX.Element => {
             aria-hidden="true"
             className="relative self-stretch w-full h-px bg-[#c8bfa8]"
           />
-          <p className="relative self-stretch [font-family:'Inter',Helvetica] font-normal text-xs tracking-[0] leading-[21.6px]">
-            <span className="text-[#7a6e5c]">
-              By continuing, you agree to our{" "}
-            </span>
-            <a className="text-[#4a5e47] underline" href="/terms-of-service">
-              Terms of Service
-            </a>
-            <span className="text-[#7a6e5c]"> and acknowledge our </span>
-            <a className="text-[#4a5e47] underline" href="/privacy-policy">
-              Privacy Policy
-            </a>
-            <span className="text-[#7a6e5c]">.</span>
-          </p>
         </div>
       </main>
     </section>
