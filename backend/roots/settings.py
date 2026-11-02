@@ -95,7 +95,7 @@ SOCIALACCOUNT_PROVIDERS = {
     },
 }
 
-LOGIN_REDIRECT_URL = '/accounts/profile/'
+LOGIN_REDIRECT_URL = '/accounts/popup-complete/' #updating djangos redirect
 
 
 # Database (PostgreSQL, DC-3)
