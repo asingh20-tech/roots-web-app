@@ -21,6 +21,12 @@ const authenticationProviders = [
   },
 ];
 
+//This function is needed to open the google popup that brayden wanted, similar to how normal websites like google have it,
+//I just stole it from a normal gmail sign in
+const openGooglePopup = (url: string) => {
+  window.open(url, "GoogleLogin", "width=500,height=650");
+};
+
 export const FamilyTreeAuthenticationSection = (): JSX.Element => {
   return (
     <section className="flex min-h-[764px] items-start relative self-stretch w-full flex-[0_0_auto]">
@@ -97,10 +103,11 @@ export const FamilyTreeAuthenticationSection = (): JSX.Element => {
             className="flex flex-col items-start gap-3.5 relative self-stretch w-full flex-[0_0_auto]"
           >
             {authenticationProviders.map((provider) => (
-              <a
-                key={provider.name}
+              <button //had to make this a button so there is an actual popup - might need to add an error message to say 
+                key={provider.name} // "Allow popups!" incase someone cant access the popup?
+                type="button"
                 className={`flex h-[58px] items-center justify-center relative self-stretch w-full rounded-md overflow-hidden border border-solid ${provider.className}`}
-                href={provider.href}
+                onClick={() => openGooglePopup(provider.href)}
                 aria-label={provider.name}
               >
                 <img
@@ -111,7 +118,7 @@ export const FamilyTreeAuthenticationSection = (): JSX.Element => {
                 <span className="[font-family:'Inter',Helvetica] font-medium text-[15px] tracking-[0.20px] leading-[normal] whitespace-nowrap">
                   {provider.name}
                 </span>
-              </a>
+              </button>
             ))}
           </nav>
           <div className="gap-5 self-stretch w-full flex flex-col items-start relative flex-[0_0_auto]">
