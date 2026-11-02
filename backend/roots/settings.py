@@ -95,6 +95,8 @@ SOCIALACCOUNT_PROVIDERS = {
     },
 }
 
+SOCIALACCOUNT_LOGIN_ON_GET = True
+
 LOGIN_REDIRECT_URL = '/accounts/popup-complete/'
 
 
