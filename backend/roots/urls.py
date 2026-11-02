@@ -1,7 +1,8 @@
 from django.contrib import admin
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.urls import path, include
+from django.urls import path, includefrom django.http import HttpResponse #have to add these imports for the popup to work 
+from django.views.decorators.clickjacking import xframe_options_deny
 from trees.views import (FamilyMemberListView,FamilyTreeDetailView,FamilyTreeListCreateView,RelationshipListView,
 )
 
@@ -32,6 +33,22 @@ def profile(request):
     })
 
 
+@login_required
+@xframe_options_deny
+def popup_complete(request):
+    return HttpResponse("""
+    <script>
+      if (window.opener) {
+        window.opener.postMessage(
+          { type: "GOOGLE_LOGIN_SUCCESS" },
+          "http://localhost:5173"
+        );
+        window.close();
+      }
+    </script>
+    <p>Login complete. You can close this window.</p>
+    """)
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/profile/", profile),
@@ -41,4 +58,5 @@ urlpatterns = [
     path("api/trees/<int:pk>/", FamilyTreeDetailView.as_view(), name="family-tree-detail"),
     path("api/trees/<int:tree_id>/members/", FamilyMemberListView.as_view(), name="family-member-list"),
     path("api/trees/<int:tree_id>/relationships/", RelationshipListView.as_view(), name="relationship-list"),
-]
+    path("accounts/popup-complete/", popup_complete), #need to popup oauth
+] 
