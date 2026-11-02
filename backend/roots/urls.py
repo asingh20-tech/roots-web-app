@@ -51,11 +51,13 @@ def popup_complete(request):
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/profile/", profile),
+    path("api/accounts/profile/", profile),
     path("accounts/", include("allauth.urls")),
     # Family Tree API
     path("api/trees/", FamilyTreeListCreateView.as_view(), name="family-tree-list-create"),
     path("api/trees/<int:pk>/", FamilyTreeDetailView.as_view(), name="family-tree-detail"),
     path("api/trees/<int:tree_id>/members/", FamilyMemberListView.as_view(), name="family-member-list"),
     path("api/trees/<int:tree_id>/relationships/", RelationshipListView.as_view(), name="relationship-list"),
-    path("accounts/popup-complete/", popup_complete, name="popup-complete"),#need to popup oauth
+    #OAuth Popup
+    path("accounts/popup-complete/", popup_complete, name="popup-complete"),
 ]
