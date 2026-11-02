@@ -35,9 +35,9 @@ const openGooglePopup = (url: string) => {
     window.removeEventListener("message", handleMessage); //verification for message being sent to right place
     try {
       const response = await fetch(
-        "http://localhost:8000/accounts/profile/",
+        "/api/accounts/profile/",
         { credentials: "include" }
-      );
+        );
       if (!response.ok) {
         alert("Could not verify login.");
         return;
