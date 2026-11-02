@@ -1,7 +1,8 @@
 from django.contrib import admin
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.urls import path, include
+from django.views.decorators.clickjacking import xframe_options_deny
 from trees.views import (FamilyMemberListView,FamilyTreeDetailView,FamilyTreeListCreateView,RelationshipListView,
 )
 
@@ -23,13 +24,28 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-
 @login_required
 def profile(request):
     return JsonResponse({
         "message": "You are logged in!",
         "email": request.user.email,
     })
+
+@login_required
+@xframe_options_deny
+def popup_complete(request):
+    return HttpResponse("""
+    <script>
+      if (window.opener) {
+        window.opener.postMessage(
+          { type: "GOOGLE_LOGIN_SUCCESS" },
+          "http://localhost:5173"
+        );
+        window.close();
+      }
+    </script>
+    <p>Login complete. You can close this window.</p>
+    """)
 
 
 urlpatterns = [
@@ -41,4 +57,5 @@ urlpatterns = [
     path("api/trees/<int:pk>/", FamilyTreeDetailView.as_view(), name="family-tree-detail"),
     path("api/trees/<int:tree_id>/members/", FamilyMemberListView.as_view(), name="family-member-list"),
     path("api/trees/<int:tree_id>/relationships/", RelationshipListView.as_view(), name="relationship-list"),
+    path("accounts/popup-complete/", popup_complete, name="popup-complete"),#need to popup oauth
 ]
