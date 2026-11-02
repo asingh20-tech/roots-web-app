@@ -50,7 +50,6 @@ def popup_complete(request):
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("accounts/profile/", profile),
     path("api/accounts/profile/", profile),
     path("accounts/", include("allauth.urls")),
     # Family Tree API
