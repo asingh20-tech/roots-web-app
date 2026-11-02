@@ -18,7 +18,7 @@ load_dotenv(BASE_DIR.parent / '.env')              # .../roots-web-app/.env
 
 # Security
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
-DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'False'
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h]
 
 #DJANGO_ALLOWED_HOSTS is not in the env file so it will default to localhost 
@@ -95,7 +95,9 @@ SOCIALACCOUNT_PROVIDERS = {
     },
 }
 
-LOGIN_REDIRECT_URL = '/accounts/profile/'
+SOCIALACCOUNT_LOGIN_ON_GET = True
+
+LOGIN_REDIRECT_URL = '/accounts/popup-complete/'
 
 
 # Database (PostgreSQL, DC-3)
