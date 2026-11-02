@@ -21,6 +21,39 @@ const authenticationProviders = [
   },
 ];
 
+const openGooglePopup = (url: string) => { 
+  const popup = window.open(url, "GoogleLogin", "width=500,height=650"); //opens the google popup and tells browser to open another window
+  if (!popup) { //checking to see if the popup is blocked abd display error messsage
+    alert("Please allow popups to sign in.");
+    return;
+  }
+
+  const handleMessage = async (event: MessageEvent) => { //checking for successful login
+    if (event.origin !== "http://localhost:8000") return;
+    if (event.source !== popup) return;
+    if (event.data?.type !== "GOOGLE_LOGIN_SUCCESS") return;
+    window.removeEventListener("message", handleMessage); //verification for message being sent to right place
+    try {
+      const response = await fetch(
+        "http://localhost:8000/accounts/profile/",
+        { credentials: "include" }
+      );
+      if (!response.ok) {
+        alert("Could not verify login.");
+        return;
+      }
+      
+      const user = await response.json();
+      console.log("Logged in:", user.email);
+      popup.close();
+      window.location.href = "/";
+    } catch {
+      alert("Could not verify login.");
+    }
+  };
+  window.addEventListener("message", handleMessage);
+};
+
 export const FamilyTreeAuthenticationSection = (): JSX.Element => {
   return (
     <section className="flex min-h-[764px] items-start relative self-stretch w-full flex-[0_0_auto]">
@@ -96,11 +129,12 @@ export const FamilyTreeAuthenticationSection = (): JSX.Element => {
             aria-label="Authentication providers"
             className="flex flex-col items-start gap-3.5 relative self-stretch w-full flex-[0_0_auto]"
           >
-            {authenticationProviders.map((provider) => (
-              <a
+            {authenticationProviders.map((provider) => ( 
+              <button
                 key={provider.name}
+                type="button"
                 className={`flex h-[58px] items-center justify-center relative self-stretch w-full rounded-md overflow-hidden border border-solid ${provider.className}`}
-                href={provider.href}
+                onClick={() => openGooglePopup(provider.href)}
                 aria-label={provider.name}
               >
                 <img
@@ -111,7 +145,7 @@ export const FamilyTreeAuthenticationSection = (): JSX.Element => {
                 <span className="[font-family:'Inter',Helvetica] font-medium text-[15px] tracking-[0.20px] leading-[normal] whitespace-nowrap">
                   {provider.name}
                 </span>
-              </a>
+              </button>
             ))}
           </nav>
           <div className="gap-5 self-stretch w-full flex flex-col items-start relative flex-[0_0_auto]">
