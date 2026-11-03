@@ -22,7 +22,21 @@ const authenticationProviders = [
 ];
 
 const openGooglePopup = (url: string) => { 
-  const popup = window.open(url, "GoogleLogin", "width=500,height=650"); //opens the google popup and tells browser to open another window
+
+  const popupWidth = 500;
+  const popupHeight = 650;
+
+    const left = Math.round(
+    window.screenX + (window.outerWidth - popupWidth) / 2,
+  );
+
+  const top = Math.round(
+    window.screenY + (window.outerHeight - popupHeight) / 2,
+  );
+
+  //code creates the popup at the center of the screen
+
+  const popup = window.open(url, "GoogleLogin", `width=${popupWidth},height=${popupHeight},left=${left},top=${top}`); //opens the google popup and tells browser to open another window
   if (!popup) { //checking to see if the popup is blocked abd display error messsage
     alert("Please allow popups to sign in.");
     return;

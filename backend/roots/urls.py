@@ -41,8 +41,8 @@ def popup_complete(request):
           { type: "GOOGLE_LOGIN_SUCCESS" },
           "http://localhost:5173"
         );
-        window.close();
       }
+      window.close();
     </script>
     <p>Login complete. You can close this window.</p>
     """)
