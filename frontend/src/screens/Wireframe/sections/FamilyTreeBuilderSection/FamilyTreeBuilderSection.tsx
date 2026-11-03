@@ -19,10 +19,10 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
   };
 
   return (
-    <main className="flex w-[1440px] h-[804px] items-start absolute top-[220px] left-0">
+    <main className="flex min-h-0 w-full flex-1 items-stretch">
       <section
         aria-labelledby="about-you-heading"
-        className="flex flex-col w-[480px] h-[804px] items-start gap-7 p-12 relative bg-[#ede8dc] border-r-2 [border-right-style:solid] border-[#c8bfa8]"
+        className="flex flex-col h-full w-[480px] shrink-0 items-start gap-7 p-12 relative bg-[#ede8dc] border-r-2 [border-right-style:solid] border-[#c8bfa8]"
       >
         <h1
           id="about-you-heading"
@@ -158,7 +158,7 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
           </div>
         </div>
       </section>
-      <section className="flex flex-col h-[804px] items-center gap-9 px-[60px] py-[52px] relative flex-1 grow bg-[#f5f0e8]">
+      <section className="flex flex-col h-full min-w-0 items-center gap-9 px-[60px] py-[52px] relative flex-1 grow bg-[#f5f0e8]">
         <header className="flex flex-col items-center gap-2.5 relative self-stretch w-full flex-[0_0_auto]">
           <h2 className="relative self-stretch mt-[-1.00px] [font-family:'Lora',Helvetica] font-normal text-[#2e3b2c] text-3xl text-center tracking-[0] leading-[normal]">
             Begin Your Family Tree
