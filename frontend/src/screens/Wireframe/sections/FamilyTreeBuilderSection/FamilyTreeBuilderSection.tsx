@@ -12,6 +12,8 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [placeOfBirth, setPlaceOfBirth] = useState("");
   const [treeName, setTreeName] = useState("You");
+  const [newTreeName, setNewTreeName] = useState("");
+  const [treeDescription, setTreeDescription] = useState("");
 
   const handleCreateTree = (): void => {
     const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
@@ -27,12 +29,48 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
         <h1
           id="about-you-heading"
           className="w-fit mt-[-2.00px] [font-family:'Lora',Helvetica] text-[#2e3b2c] text-[22px] tracking-[2.00px] relative font-normal leading-[normal]"
-        >
-          ABOUT YOU
+          >
+            CREATE YOUR TREE
         </h1>
-        <p className="self-stretch [font-family:'Inter',Helvetica] text-[#7a6e5c] text-[13px] tracking-[0] relative font-normal leading-[normal]">
-          Enter your personal details to start building your family tree.
-        </p>
+<div className="flex flex-col items-start gap-2 relative self-stretch w-full flex-[0_0_auto]">
+  <label
+    htmlFor="new-tree-name"
+    className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-semibold text-[#7a6e5c] text-[11px] tracking-[2.00px] leading-[normal] whitespace-nowrap"
+  >
+    NAME OF TREE
+  </label>
+  <div className="relative self-stretch w-full h-[46px] bg-[#faf8f4] rounded overflow-hidden border border-solid border-[#c8bfa8]">
+    <input
+      id="new-tree-name"
+      name="newTreeName"
+      type="text"
+      value={newTreeName}
+      onChange={(event) => setNewTreeName(event.target.value)}
+      placeholder="e.g. The Bennett Family Tree"
+      className="absolute inset-0 w-full h-full px-3.5 [font-family:'Inter',Helvetica] font-normal text-[#2e3b2c] text-[15px] tracking-[0] leading-[normal] placeholder:text-[#b0a48e]"
+    />
+  </div>
+</div>
+
+<div className="flex flex-col items-start gap-2 relative self-stretch w-full flex-[0_0_auto]">
+  <label
+    htmlFor="tree-description"
+    className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-semibold text-[#7a6e5c] text-[11px] tracking-[2.00px] leading-[normal] whitespace-nowrap"
+  >
+    TREE DESCRIPTION (OPTIONAL)
+  </label>
+  <div className="relative self-stretch w-full h-[46px] bg-[#faf8f4] rounded overflow-hidden border border-solid border-[#c8bfa8]">
+    <input
+      id="tree-description"
+      name="treeDescription"
+      type="text"
+      value={treeDescription}
+      onChange={(event) => setTreeDescription(event.target.value)}
+      placeholder="e.g. Our family's history"
+      className="absolute inset-0 w-full h-full px-3.5 [font-family:'Inter',Helvetica] font-normal text-[#2e3b2c] text-[15px] tracking-[0] leading-[normal] placeholder:text-[#b0a48e]"
+    />
+  </div>
+</div>
         <div
           aria-hidden="true"
           className="relative self-stretch w-full h-px bg-[#c8bfa8]"

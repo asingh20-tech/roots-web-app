@@ -51,7 +51,7 @@ export const AppHeaderSection = (): JSX.Element => {
       >
         <a
           className="inline-flex flex-col items-start justify-center relative self-stretch flex-[0_0_auto] border-b-[3px] [border-bottom-style:solid] border-[#355b43]"
-          href="/family-tree"
+          href="/roots-u183-bennett-family-tree"
           aria-current="page"
         >
           <span className="relative w-fit [font-family:'Inter',Helvetica] font-semibold text-[#355b43] text-sm tracking-[0] leading-[normal]">
@@ -77,11 +77,11 @@ export const AppHeaderSection = (): JSX.Element => {
               aria-hidden="true"
             >
               <span className="relative w-fit [font-family:'Inter',Helvetica] font-semibold text-[#355b43] text-xs tracking-[0] leading-[normal]">
-                EB
+                ?
               </span>
             </span>
             <span className="relative w-fit [font-family:'Inter',Helvetica] font-normal text-[#283b30] text-[13px] tracking-[0] leading-[normal]">
-              Emma Bennett
+              My Account
             </span>
             <span className="relative w-3.5 h-3.5" aria-hidden="true">
               <img
