@@ -320,3 +320,199 @@ class TreeReadEndpointTests(APITestCase):
         for name in ("family-tree-detail", "family-member-list", "relationship-list"):
             response = self.client.get(reverse(name, args=[self.tree.pk]))
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, name)
+
+    
+
+class P1WriteEndpointTests(APITestCase):
+    """SRS tests for write endpoints: FR-2, FR-3, FR-4, FR-5, FR-16, FR-17, SA-1, DB-2, DB-6."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user("p1-owner", email="p1-owner@example.com")
+        self.collab = User.objects.create_user("p1-collab", email="p1-collab@example.com")
+        self.outsider = User.objects.create_user("p1-out", email="p1-out@example.com")
+        self.tree = FamilyTree.objects.create(name="Lee Family", owner=self.owner)
+        self.other_tree = FamilyTree.objects.create(name="Other", owner=self.outsider)
+        invite, _ = Invitation.create_for(self.tree, self.owner)
+        TreeCollaborator.objects.create(tree=self.tree, user=self.collab, invitation=invite)
+        self.grandma = FamilyMember.objects.create(tree=self.tree, first_name="Gia", last_name="Lee")
+        self.mom = FamilyMember.objects.create(tree=self.tree, first_name="Ann", last_name="Lee")
+        self.kid = FamilyMember.objects.create(tree=self.tree, first_name="Ben", last_name="Lee")
+        self.outside_member = FamilyMember.objects.create(tree=self.other_tree, first_name="Zed", last_name="Q")
+        Relationship.objects.create(tree=self.tree, member1=self.grandma, member2=self.mom,
+                                    relationship_type=RelationshipType.PARENT)
+        self.members_url = reverse("family-member-list", args=[self.tree.pk])
+        self.rels_url = reverse("relationship-list", args=[self.tree.pk])
+
+    def member_url(self, member):
+        return reverse("family-member-detail", args=[self.tree.pk, member.pk])
+
+    # ----- Accounts (FR-1, FR-2) -----
+
+    def test_fr1_me_returns_logged_in_user(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("me"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["email"], "p1-owner@example.com")
+
+    def test_fr1_me_requires_login(self):
+        self.assertEqual(self.client.get(reverse("me")).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_fr2_logout_ends_session(self):
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.post(reverse("logout")).status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self.client.get(reverse("me")).status_code, status.HTTP_403_FORBIDDEN)
+
+    # ----- Trees (FR-3, SA-1, DB-6) -----
+
+    def test_fr3_owner_renames_tree(self):
+        self.client.force_login(self.owner)
+        url = reverse("family-tree-detail", args=[self.tree.pk])
+        response = self.client.patch(url, {"name": "Lee-Park Family"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.tree.refresh_from_db()
+        self.assertEqual(self.tree.name, "Lee-Park Family")
+
+    def test_sa1_collaborator_cannot_edit_or_delete_tree(self):
+        self.client.force_login(self.collab)
+        url = reverse("family-tree-detail", args=[self.tree.pk])
+        self.assertEqual(self.client.patch(url, {"name": "X"}, format="json").status_code,
+                         status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(FamilyTree.objects.filter(pk=self.tree.pk).exists())
+
+    def test_db6_owner_deletes_tree_and_children(self):
+        self.client.force_login(self.owner)
+        response = self.client.delete(reverse("family-tree-detail", args=[self.tree.pk]))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FamilyMember.objects.filter(tree_id=self.tree.pk).exists())
+        self.assertFalse(Relationship.objects.filter(tree_id=self.tree.pk).exists())
+
+    def test_tree_reports_is_owner_flag(self):
+        self.client.force_login(self.collab)
+        response = self.client.get(reverse("family-tree-detail", args=[self.tree.pk]))
+        self.assertFalse(response.data["is_owner"])
+
+    # ----- Members (FR-4, FR-16, SA-1) -----
+
+    def test_fr4_owner_adds_member(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.members_url, {
+            "first_name": "Cy", "last_name": "Lee", "gender": "MALE", "birth_date": "2010-05-01",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(FamilyMember.objects.get(pk=response.data["id"]).tree, self.tree)
+
+    def test_fr4_owner_edits_member_and_version_increments(self):
+        self.client.force_login(self.owner)
+        response = self.client.patch(self.member_url(self.kid), {"first_name": "Benny"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.kid.refresh_from_db()
+        self.assertEqual((self.kid.first_name, self.kid.version), ("Benny", 2))
+
+    def test_fr4_owner_deletes_member(self):
+        self.client.force_login(self.owner)
+        response = self.client.delete(self.member_url(self.kid))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FamilyMember.objects.filter(pk=self.kid.pk).exists())
+
+    def test_fr16_death_before_birth_returns_400_with_message(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.members_url, {
+            "first_name": "X", "last_name": "Y", "birth_date": "2000-01-01", "death_date": "1990-01-01",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("death_date", response.data)
+
+    def test_ir2_name_over_50_chars_rejected(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.members_url, {"first_name": "A" * 51, "last_name": "B"},
+                                    format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_sa1_collaborator_can_read_but_not_write_members(self):
+        self.client.force_login(self.collab)
+        self.assertEqual(self.client.get(self.members_url).status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.post(self.members_url, {"first_name": "N", "last_name": "O"},
+                                          format="json").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.patch(self.member_url(self.kid), {"first_name": "Z"},
+                                           format="json").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.delete(self.member_url(self.kid)).status_code,
+                         status.HTTP_403_FORBIDDEN)
+
+    def test_dc4_outsider_cannot_add_member(self):
+        self.client.force_login(self.outsider)
+        response = self.client.post(self.members_url, {"first_name": "N", "last_name": "O"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # ----- Relationships (FR-5, FR-17, DB-2) -----
+
+    def test_fr5_owner_creates_parent_relationship(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.rels_url, {
+            "member1": self.mom.pk, "member2": self.kid.pk, "relationship_type": "PARENT",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_fr5_child_is_stored_as_reverse_parent(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.rels_url, {
+            "member1": self.kid.pk, "member2": self.mom.pk, "relationship_type": "CHILD",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual((response.data["member1"], response.data["member2"], response.data["relationship_type"]),
+                         (self.mom.pk, self.kid.pk, "PARENT"))
+
+    def test_fr5_spouse_with_marriage_date(self):
+        self.client.force_login(self.owner)
+        spouse = FamilyMember.objects.create(tree=self.tree, first_name="Sam", last_name="Park")
+        response = self.client.post(self.rels_url, {
+            "member1": self.mom.pk, "member2": spouse.pk, "relationship_type": "SPOUSE",
+            "start_date": "1995-06-10",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_fr5_marriage_date_only_for_spouse(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.rels_url, {
+            "member1": self.mom.pk, "member2": self.kid.pk, "relationship_type": "SIBLING",
+            "start_date": "1995-06-10",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_fr17_own_ancestor_returns_400(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.rels_url, {
+            "member1": self.mom.pk, "member2": self.grandma.pk, "relationship_type": "PARENT",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_duplicate_relationship_returns_400(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.rels_url, {
+            "member1": self.grandma.pk, "member2": self.mom.pk, "relationship_type": "PARENT",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_db2_cross_tree_relationship_returns_400(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.rels_url, {
+            "member1": self.mom.pk, "member2": self.outside_member.pk, "relationship_type": "SIBLING",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_sa1_collaborator_cannot_create_or_delete_relationship(self):
+        self.client.force_login(self.collab)
+        response = self.client.post(self.rels_url, {
+            "member1": self.mom.pk, "member2": self.kid.pk, "relationship_type": "PARENT",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        rel = Relationship.objects.filter(tree=self.tree).first()
+        url = reverse("relationship-detail", args=[self.tree.pk, rel.pk])
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_fr5_owner_deletes_relationship(self):
+        self.client.force_login(self.owner)
+        rel = Relationship.objects.filter(tree=self.tree).first()
+        url = reverse("relationship-detail", args=[self.tree.pk, rel.pk])
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Relationship.objects.filter(pk=rel.pk).exists())        
