@@ -99,6 +99,10 @@ SOCIALACCOUNT_LOGIN_ON_GET = True
 
 LOGIN_REDIRECT_URL = '/accounts/popup-complete/'
 
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+ACCOUNT_LOGOUT_REDIRECT_URL = FRONTEND_URL + '/'
+CSRF_TRUSTED_ORIGINS = [FRONTEND_URL]
+
 
 # Database (PostgreSQL, DC-3)
 
@@ -110,6 +114,7 @@ DATABASES = {
         'PASSWORD': os.environ['POSTGRES_PASSWORD'],
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'ATOMIC_REQUESTS': True,  # each request is one transaction: no partial saves (SA-3)
     }
 }
 
@@ -161,8 +166,4 @@ MEDIA_ROOT = BASE_DIR / 'private_media'
 
 # Email (not used for invitations — links are shared manually)
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
