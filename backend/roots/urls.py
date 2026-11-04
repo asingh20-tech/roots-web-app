@@ -24,10 +24,13 @@ def popup_complete(request):
     frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
     return HttpResponse(f"""
     <script>
-      if (window.opener) {{
-        window.opener.postMessage({{ type: "GOOGLE_LOGIN_SUCCESS" }}, "{frontend}");
-        window.close();
-      }}
+      if (window.opener) {
+        window.opener.postMessage(
+          { type: "GOOGLE_LOGIN_SUCCESS" },
+          "http://localhost:5173"
+        );
+      }
+      window.close();
     </script>
     <p>Login complete. You can close this window.</p>
     """)

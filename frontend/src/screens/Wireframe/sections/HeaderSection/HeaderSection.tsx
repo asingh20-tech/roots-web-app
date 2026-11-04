@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 export const HeaderSection = (): JSX.Element => {
   return (
     <header
-      className="absolute top-0 left-0 flex h-[220px] w-[1440px] items-center border-b-2 border-[#c8bfa8] bg-[#ede8dc] pl-0 pr-12 py-0"
+      className="flex h-[220px] w-full shrink-0 items-center border-b-2 border-[#c8bfa8] bg-[#ede8dc] pl-0 pr-12 py-0"
       aria-label="Roots site header"
     >
       <div className="relative h-[220px] w-[258px] bg-[#e8e2d4]">
@@ -23,7 +23,7 @@ export const HeaderSection = (): JSX.Element => {
       </div>
       <Link
         className="relative inline-flex flex-[0_0_auto] items-center gap-3 rounded-md border border-solid border-[#b0a48e] bg-white px-[18px] py-2.5"
-        to="/roots-u183-sign-in-or-sign-up"
+        to="/sign-in"
         aria-label="Sign in or sign up"
       >
         <img
