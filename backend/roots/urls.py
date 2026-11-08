@@ -8,12 +8,27 @@ from django.views.decorators.clickjacking import xframe_options_deny
 
 from accounts.views import csrf, logout_view, me
 from trees.views import (
+    CollaboratorListView,
+    CollaboratorRemoveView,
+    DocumentDetailView,
+    DocumentFileView,
+    DocumentListCreateView,
     FamilyMemberDetailView,
     FamilyMemberListCreateView,
     FamilyTreeDetailView,
     FamilyTreeListCreateView,
+    InvitationAcceptView,
+    InvitationListCreateView,
+    InvitationRevokeView,
+    MemberPhotoView,
+    MemberSearchView,
     RelationshipDetailView,
     RelationshipListCreateView,
+    SuggestionApproveView,
+    SuggestionDetailView,
+    SuggestionFileView,
+    SuggestionListCreateView,
+    SuggestionRejectView,
 )
 
 
