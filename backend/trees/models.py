@@ -393,7 +393,7 @@ class Document(models.Model):
         upload_to=private_upload_path,
         max_length=255,
         db_column="file_path",
-        validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), validate_upload_size],
+                validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), validate_upload_size, validate_file_signature],
     )
     file_type = models.CharField(max_length=10, editable=False)  # pdf / jpg / png
     file_size = models.PositiveIntegerField(editable=False)  # bytes
@@ -457,7 +457,7 @@ class SuggestRequest(models.Model):
         max_length=255,
         null=True,
         blank=True,
-        validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), validate_upload_size],
+                validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), validate_upload_size, validate_file_signature],
     )
     based_on_version = models.PositiveIntegerField(null=True, blank=True)  # FR-21
     status = models.CharField(
