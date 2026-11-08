@@ -40,7 +40,18 @@ FILE_SIGNATURES = {
     "png": (b"\x89PNG\r\n\x1a\n",),
     "jpg": (b"\xff\xd8\xff",),
     "jpeg": (b"\xff\xd8\xff",),
-}    
+}  
+
+def validate_file_signature(file):
+    ext = file.name.rsplit(".", 1)[-1].lower() if "." in file.name else ""
+    signatures = FILE_SIGNATURES.get(ext)
+    if not signatures:
+        return  # FileExtensionValidator reports the bad extension
+    file.seek(0)
+    head = file.read(8)
+    file.seek(0)
+    if not head.startswith(signatures):
+        raise ValidationError(f"File content is not a valid {ext.upper()} file.")
 
 def private_upload_path(instance, filename):
     """Store uploads under MEDIA_ROOT/trees/<tree_id>/ with a random name.
