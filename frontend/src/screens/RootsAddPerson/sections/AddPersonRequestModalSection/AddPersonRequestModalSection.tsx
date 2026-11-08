@@ -1,349 +1,461 @@
 import { ChangeEvent, FormEvent, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 
-type FormValues = {
-  fullName: string;
-  origin: string;
+type RequestType = "ADD_MEMBER" | "ADD_RELATIONSHIP";
+type Gender = "FEMALE" | "MALE" | "OTHER" | "UNKNOWN";
+type RelationshipType =
+  | "PARENT"
+  | "CHILD"
+  | "ADOPTIVE_PARENT"
+  | "SPOUSE"
+  | "SIBLING";
+
+// Writable fields that will be placed in the DB for ADD_MEMBER.
+type MemberFormValues = {
+  firstName: string;
+  lastName: string;
+  gender: Gender;
   birthDate: string;
   deathDate: string;
-  relationship: string;
-  parents: string;
-  children: string;
-  notes: string;
+  description: string;
 };
 
-const initialValues: FormValues = {
-  fullName: "Clara Bennett",
-  origin: "York, England",
-  birthDate: "1965",
-  deathDate: "Not applicable",
-  relationship: "Parent of / Child of ✓ / Both",
-  parents: "James Bennett, Eleanor Ellis",
-  children: "Select family members if Parent of or Both",
-  notes:
-    "Found in a family census record and confirmed through a conversation with a great aunt.",
+// Writable fields that will be placed in the DB for ADD_RELATIONSHIP.
+// Member IDs remain strings here because HTML select values are strings.
+type RelationshipFormValues = {
+  member1: string;
+  member2: string;
+  relationshipType: RelationshipType;
+  startDate: string;
+  description: string;
 };
 
-const reviewItems = [
-  {
-    label: "Requested person",
-    getValue: (values: FormValues) => values.fullName,
-  },
-  {
-    label: "Connection",
-    getValue: (values: FormValues) => {
-      if (values.relationship.includes("Child of")) {
-        return "Child of James Bennett";
-      }
+type MemberOption = {
+  id: number;
+  fullName: string;
+};
 
-      if (values.relationship.includes("Parent of")) {
-        return "Parent of selected family members";
-      }
+type AddPersonRequestModalSectionProps = {
+  onClose: () => void;
+  // Later, pass members returned by GET /api/trees/:treeId/members/.
+  members?: MemberOption[];
+};
 
-      return "Not specified";
-    },
-  },
-  {
-    label: "Place of origin",
-    getValue: (values: FormValues) => values.origin,
-  },
-  {
-    label: "Birth year",
-    getValue: (values: FormValues) => values.birthDate,
-  },
-  {
-    label: "Death date",
-    getValue: (values: FormValues) => values.deathDate,
-  },
+const initialMemberValues: MemberFormValues = {
+  firstName: "",
+  lastName: "",
+  gender: "UNKNOWN",
+  birthDate: "",
+  deathDate: "",
+  description: "",
+};
+
+const initialRelationshipValues: RelationshipFormValues = {
+  member1: "",
+  member2: "",
+  relationshipType: "PARENT",
+  startDate: "",
+  description: "",
+};
+
+const genderOptions: Array<{ value: Gender; label: string }> = [
+  { value: "UNKNOWN", label: "Unknown / prefer not to say" },
+  { value: "FEMALE", label: "Female" },
+  { value: "MALE", label: "Male" },
+  { value: "OTHER", label: "Other" },
+];
+// Needed for adding to the DB because values are stored as uppercase because thats what the DB accepts
+const relationshipOptions: Array<{
+  value: RelationshipType;
+  label: string;
+}> = [
+  { value: "PARENT", label: "Parent" },
+  { value: "CHILD", label: "Child" },
+  { value: "ADOPTIVE_PARENT", label: "Adoptive parent" },
+  { value: "SPOUSE", label: "Spouse" },
+  { value: "SIBLING", label: "Sibling" },
 ];
 
-export const AddPersonRequestModalSection = (): JSX.Element => {
-  const [values, setValues] = useState<FormValues>(initialValues);
-  const [photoName, setPhotoName] = useState("");
+export const AddPersonRequestModalSection = ({
+  onClose,
+  members = [],
+}: AddPersonRequestModalSectionProps): JSX.Element => {
+  const [requestType, setRequestType] =
+    useState<RequestType>("ADD_MEMBER");
+  const [memberValues, setMemberValues] =
+    useState<MemberFormValues>(initialMemberValues);
+  const [relationshipValues, setRelationshipValues] =
+    useState<RelationshipFormValues>(initialRelationshipValues);
   const [submitted, setSubmitted] = useState(false);
+  const [formError, setFormError] = useState("");
 
-  const updateValue =
-    (field: keyof FormValues) =>
+  const updateMemberValue =
+    (field: keyof MemberFormValues) =>
     (
       event: ChangeEvent<
         HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
       >,
     ): void => {
-      setValues((currentValues) => ({
+      setMemberValues((currentValues) => ({
         ...currentValues,
         [field]: event.target.value,
       }));
       setSubmitted(false);
+      setFormError("");
     };
 
-  const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    const file = event.target.files?.[0];
-    setPhotoName(file?.name ?? "");
+  const updateRelationshipValue =
+    (field: keyof RelationshipFormValues) =>
+    (
+      event: ChangeEvent<
+        HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      >,
+    ): void => {
+      const nextValue = event.target.value;
+      setRelationshipValues((currentValues) => ({
+        ...currentValues,
+        [field]: nextValue,
+        // start_date is valid only for a SPOUSE relationship.
+        ...(field === "relationshipType" && nextValue !== "SPOUSE"
+          ? { startDate: "" }
+          : {}),
+      }));
+      setSubmitted(false);
+      setFormError("");
+    };
+
+  const selectRequestType = (nextType: RequestType): void => {
+    setRequestType(nextType);
+    setSubmitted(false);
+    setFormError("");
   };
+
+  const memberName = (memberId: string): string =>
+    members.find((member) => member.id === Number(memberId))?.fullName ||
+    "Not selected";
+
+  const reviewDetails = useMemo(() => {
+    if (requestType === "ADD_MEMBER") {
+      const fullName = `${memberValues.firstName} ${memberValues.lastName}`.trim();
+      return [
+        { label: "Request", value: "Add member" },
+        { label: "Name", value: fullName || "Not entered" },
+        { label: "Gender", value: memberValues.gender },
+        { label: "Birth date", value: memberValues.birthDate || "Not provided" },
+        { label: "Death date", value: memberValues.deathDate || "Not provided" },
+      ];
+    }
+
+    return [
+      { label: "Request", value: "Add relationship" },
+      { label: "First member", value: memberName(relationshipValues.member1) },
+      { label: "Relationship", value: relationshipValues.relationshipType },
+      { label: "Second member", value: memberName(relationshipValues.member2) },
+      ...(relationshipValues.relationshipType === "SPOUSE"
+        ? [
+            {
+              label: "Marriage date",
+              value: relationshipValues.startDate || "Not provided",
+            },
+          ]
+        : []),
+    ];
+  }, [memberValues, members, relationshipValues, requestType]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
+
+    if (
+      requestType === "ADD_RELATIONSHIP" &&
+      relationshipValues.member1 === relationshipValues.member2
+    ) {
+      setFormError("A member cannot have a relationship with themselves.");
+      return;
+    }
+
+    // Connect this to SuggestRequest after its serializer and endpoint are ready.
+    // Convert empty optional dates to null and selected member IDs to numbers.
+    setFormError("");
     setSubmitted(true);
   };
 
-  const handleReset = (): void => {
-    setValues(initialValues);
-    setPhotoName("");
-    setSubmitted(false);
-  };
-
-  const reviewDetails = useMemo(
-    () =>
-      reviewItems.map((item) => ({
-        label: item.label,
-        value: item.getValue(values),
-      })),
-    [values],
-  );
+  const relationshipRequestUnavailable =
+    requestType === "ADD_RELATIONSHIP" && members.length < 2;
 
   return (
-    <div className="absolute left-[220px] top-24 flex w-[1160px] flex-col items-start gap-6 overflow-hidden rounded-[20px] border border-solid border-[#dedcd2] bg-[#fffdf9] p-8 shadow-[0px_18px_48px_#3444321f]">
-      <div className="relative flex w-full flex-[0_0_auto] items-start justify-between">
-        <div className="relative flex flex-1 grow flex-col items-start gap-2">
-          <h1 className="relative mt-[-1.00px] w-fit [font-family:'Lora',Helvetica] text-[32px] font-normal leading-[normal] tracking-[-0.26px] text-[#283b30]">
-            Request to add a person
+    <div
+      aria-labelledby="request-change-title"
+      aria-modal="true"
+      className="relative mx-auto my-12 flex w-[calc(100%-2rem)] max-w-[1160px] flex-col items-start gap-6 overflow-hidden rounded-[20px] border border-solid border-[#dedcd2] bg-[#fffdf9] p-8 shadow-[0px_18px_48px_#3444321f]"
+      role="dialog"
+    >
+      <div className="relative flex w-full items-start justify-between">
+        <div className="flex flex-1 flex-col items-start gap-2">
+          <h1
+            className="[font-family:'Lora',Helvetica] text-[32px] font-normal text-[#283b30]"
+            id="request-change-title"
+          >
+            Request a change
           </h1>
-          <p className="relative self-stretch [font-family:'Inter',Helvetica] text-sm font-normal leading-[21px] tracking-[0] text-[#7b8177]">
-            Share what you know, and the tree owner or an admin will review your
-            request before adding this person to the Bennett family tree.
+          <p className="[font-family:'Inter',Helvetica] text-sm leading-[21px] text-[#7b8177]">
+            Submit family information for the Tree Owner to review before it is
+            added to the tree.
           </p>
         </div>
-        <Link
+        <button
           aria-label="Close request form"
-          className="relative flex h-10 w-10 flex-col items-center justify-center overflow-hidden rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9]"
-          to="/roots-u183-bennett-family-tree"
+          className="flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#dedcd2] bg-[#fffdf9]"
+          onClick={onClose}
+          type="button"
         >
-          <div className="relative h-4 w-4">
-            <img
-              alt=""
-              aria-hidden="true"
-              className="absolute left-[3.33%] top-[3.33%] h-[96.67%] w-[96.67%]"
-              src="/img/vector-47.svg"
-            />
-          </div>
-        </Link>
+          <img
+            alt=""
+            aria-hidden="true"
+            className="h-4 w-4"
+            src="/img/vector-47.svg"
+          />
+        </button>
       </div>
+
+      <div
+        aria-label="Choose request type"
+        className="flex w-full gap-3 rounded-xl bg-[#f6f4ee] p-1.5"
+        role="group"
+      >
+        {(
+          [
+            ["ADD_MEMBER", "Add member"],
+            ["ADD_RELATIONSHIP", "Add relationship"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            aria-pressed={requestType === value}
+            className={`flex-1 rounded-lg px-4 py-3 [font-family:'Inter',Helvetica] text-sm font-semibold ${
+              requestType === value
+                ? "bg-[#355b43] text-white shadow-sm"
+                : "text-[#283b30] hover:bg-white"
+            }`}
+            key={value}
+            onClick={() => selectRequestType(value)}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <form
-        aria-label="Request to add a person"
-        className="flex w-full flex-[0_0_auto] items-start gap-6"
+        aria-label="Request a tree change"
+        className="flex w-full flex-col items-start gap-6 lg:flex-row"
         onSubmit={handleSubmit}
       >
-        <div className="relative flex w-[720px] flex-col items-start gap-5">
-          <section className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-4">
-            <h2 className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-lg font-semibold leading-[normal] tracking-[0] text-[#283b30]">
-              Person identity
-            </h2>
-            <div className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-2">
-              <label
-                className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-                htmlFor="full-name"
-              >
-                Full name
-              </label>
-              <input
-                className="relative h-12 w-full rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-3.5 [font-family:'Inter',Helvetica] text-sm font-normal leading-[normal] tracking-[0] text-[#283b30]"
-                id="full-name"
-                onChange={updateValue("fullName")}
-                required
-                type="text"
-                value={values.fullName}
-              />
-            </div>
-            <div className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-2">
-              <label
-                className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-                htmlFor="photo"
-              >
-                Photo (optional)
-              </label>
-              <label
-                className="relative flex h-12 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-3.5"
-                htmlFor="photo"
-              >
-                <span className="[font-family:'Inter',Helvetica] text-sm font-normal leading-[normal] tracking-[0] text-[#283b30]">
-                  {photoName || "+ Upload photo"}
-                </span>
-                <input
-                  accept="image/*"
-                  className="sr-only"
-                  id="photo"
-                  onChange={handlePhotoChange}
-                  type="file"
-                />
-              </label>
-            </div>
-            <div className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-2">
-              <label
-                className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-                htmlFor="origin"
-              >
-                Place of origin (if known)
-              </label>
-              <input
-                className="relative h-12 w-full rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-3.5 [font-family:'Inter',Helvetica] text-sm font-normal leading-[normal] tracking-[0] text-[#283b30]"
-                id="origin"
-                onChange={updateValue("origin")}
-                type="text"
-                value={values.origin}
-              />
-            </div>
-            <div className="relative flex w-full flex-[0_0_auto] items-start gap-4">
-              <div className="relative flex flex-1 grow flex-col items-start gap-2">
-                <label
-                  className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-                  htmlFor="birth-date"
+        <div className="flex w-full flex-col items-start gap-5 lg:w-[720px]">
+          {requestType === "ADD_MEMBER" ? (
+            <section className="flex w-full flex-col items-start gap-4">
+              <h2 className="[font-family:'Inter',Helvetica] text-lg font-semibold text-[#283b30]">
+                Member information
+              </h2>
+              <div className="grid w-full gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                  First name
+                  <input
+                    className="h-12 rounded-[10px] border border-[#dedcd2] px-3.5 text-sm font-normal"
+                    maxLength={50}
+                    onChange={updateMemberValue("firstName")}
+                    required
+                    type="text"
+                    value={memberValues.firstName}
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                  Last name
+                  <input
+                    className="h-12 rounded-[10px] border border-[#dedcd2] px-3.5 text-sm font-normal"
+                    maxLength={50}
+                    onChange={updateMemberValue("lastName")}
+                    required
+                    type="text"
+                    value={memberValues.lastName}
+                  />
+                </label>
+              </div>
+              <label className="flex w-full flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                Gender
+                <select
+                  className="h-12 rounded-[10px] border border-[#dedcd2] bg-white px-3.5 text-sm font-normal"
+                  onChange={updateMemberValue("gender")}
+                  value={memberValues.gender}
                 >
+                  {genderOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid w-full gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
                   Birth date
+                  <input
+                    className="h-12 rounded-[10px] border border-[#dedcd2] px-3.5 text-sm font-normal"
+                    onChange={updateMemberValue("birthDate")}
+                    required
+                    type="date"
+                    value={memberValues.birthDate}
+                  />
                 </label>
-                <input
-                  className="relative h-12 w-full rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-3.5 [font-family:'Inter',Helvetica] text-sm font-normal leading-[normal] tracking-[0] text-[#283b30]"
-                  id="birth-date"
-                  onChange={updateValue("birthDate")}
-                  type="text"
-                  value={values.birthDate}
-                />
+                <label className="flex flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                  Death date (optional)
+                  <input
+                    className="h-12 rounded-[10px] border border-[#dedcd2] px-3.5 text-sm font-normal"
+                    min={memberValues.birthDate || undefined}
+                    onChange={updateMemberValue("deathDate")}
+                    type="date"
+                    value={memberValues.deathDate}
+                  />
+                </label>
               </div>
-              <div className="relative flex flex-1 grow flex-col items-start gap-2">
-                <label
-                  className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-                  htmlFor="death-date"
+              <label className="flex w-full flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                Notes for the Tree Owner
+                <textarea
+                  className="h-[120px] resize-none rounded-[10px] border border-[#dedcd2] px-3.5 py-4 text-sm font-normal"
+                  onChange={updateMemberValue("description")}
+                  placeholder="Explain what you know about this family member."
+                  required
+                  value={memberValues.description}
+                />
+              </label>
+            </section>
+          ) : (
+            <section className="flex w-full flex-col items-start gap-4">
+              <h2 className="[font-family:'Inter',Helvetica] text-lg font-semibold text-[#283b30]">
+                Relationship information
+              </h2>
+              {members.length < 2 && (
+                <p className="w-full rounded-lg bg-[#f7ece6] p-3 text-sm text-[#704536]">
+                  At least two saved family members are required before a
+                  relationship can be requested.
+                </p>
+              )}
+              <label className="flex w-full flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                First member
+                <select
+                  className="h-12 rounded-[10px] border border-[#dedcd2] bg-white px-3.5 text-sm font-normal"
+                  disabled={members.length === 0}
+                  onChange={updateRelationshipValue("member1")}
+                  required
+                  value={relationshipValues.member1}
                 >
-                  Death date (if applicable)
+                  <option value="">Select a family member</option>
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.fullName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex w-full flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                Relationship
+                <select
+                  className="h-12 rounded-[10px] border border-[#dedcd2] bg-white px-3.5 text-sm font-normal"
+                  onChange={updateRelationshipValue("relationshipType")}
+                  value={relationshipValues.relationshipType}
+                >
+                  {relationshipOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex w-full flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                Second member
+                <select
+                  className="h-12 rounded-[10px] border border-[#dedcd2] bg-white px-3.5 text-sm font-normal"
+                  disabled={members.length === 0}
+                  onChange={updateRelationshipValue("member2")}
+                  required
+                  value={relationshipValues.member2}
+                >
+                  <option value="">Select a family member</option>
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.fullName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {relationshipValues.relationshipType === "SPOUSE" && (
+                <label className="flex w-full flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                  Marriage date (optional)
+                  <input
+                    className="h-12 rounded-[10px] border border-[#dedcd2] px-3.5 text-sm font-normal"
+                    onChange={updateRelationshipValue("startDate")}
+                    type="date"
+                    value={relationshipValues.startDate}
+                  />
                 </label>
-                <input
-                  className="relative h-12 w-full rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-3.5 [font-family:'Inter',Helvetica] text-sm font-normal leading-[normal] tracking-[0] text-[#7b8177]"
-                  id="death-date"
-                  onChange={updateValue("deathDate")}
-                  type="text"
-                  value={values.deathDate}
+              )}
+              <label className="flex w-full flex-col gap-2 text-[13px] font-semibold text-[#283b30]">
+                Notes for the Tree Owner
+                <textarea
+                  className="h-[120px] resize-none rounded-[10px] border border-[#dedcd2] px-3.5 py-4 text-sm font-normal"
+                  onChange={updateRelationshipValue("description")}
+                  placeholder="Explain how these family members are related."
+                  required
+                  value={relationshipValues.description}
                 />
-              </div>
-            </div>
-          </section>
-          <section className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-4">
-            <h2 className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-lg font-semibold leading-[normal] tracking-[0] text-[#283b30]">
-              Relationship details
-            </h2>
-            <div className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-2">
-              <label
-                className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-                htmlFor="relationship"
-              >
-                How is this person related? *
               </label>
-              <select
-                className="relative h-12 w-full rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-3.5 [font-family:'Inter',Helvetica] text-sm font-normal leading-[normal] tracking-[0] text-[#283b30]"
-                id="relationship"
-                onChange={updateValue("relationship")}
-                required
-                value={values.relationship}
-              >
-                <option value="Parent of / Child of ✓ / Both">
-                  Parent of / Child of ✓ / Both
-                </option>
-                <option value="Child of">Child of</option>
-                <option value="Parent of">Parent of</option>
-                <option value="Both">Both</option>
-              </select>
-            </div>
-            <div className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-2">
-              <label
-                className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-                htmlFor="parents"
-              >
-                Child of · select parent(s) *
-              </label>
-              <input
-                className="relative h-12 w-full rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-3.5 [font-family:'Inter',Helvetica] text-sm font-normal leading-[normal] tracking-[0] text-[#283b30]"
-                id="parents"
-                onChange={updateValue("parents")}
-                required
-                type="text"
-                value={values.parents}
-              />
-            </div>
-            <div className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-2">
-              <label
-                className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-                htmlFor="children"
-              >
-                Parent of · select child(ren)
-              </label>
-              <input
-                className="relative h-12 w-full rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-3.5 [font-family:'Inter',Helvetica] text-sm font-normal leading-[normal] tracking-[0] text-[#7b8177]"
-                id="children"
-                onChange={updateValue("children")}
-                type="text"
-                value={values.children}
-              />
-            </div>
-          </section>
-          <section className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-4">
-            <h2 className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-lg font-semibold leading-[normal] tracking-[0] text-[#283b30]">
-              Notes for review
-            </h2>
-            <div className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-2">
-              <label
-                className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-                htmlFor="notes"
-              >
-                Anything else the reviewer should know
-              </label>
-              <textarea
-                className="relative h-[120px] w-full resize-none rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-3.5 py-4 [font-family:'Inter',Helvetica] text-sm font-normal leading-[normal] tracking-[0] text-[#7b8177]"
-                id="notes"
-                onChange={updateValue("notes")}
-                value={values.notes}
-              />
-            </div>
-          </section>
+            </section>
+          )}
         </div>
-        <aside className="relative flex flex-1 grow flex-col items-start gap-4 overflow-hidden rounded-2xl border border-solid border-[#dedcd2] bg-[#f6f4ee] p-5">
-          <h2 className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-lg font-semibold leading-[normal] tracking-[0] text-[#283b30]">
+
+        <aside className="flex w-full flex-1 grow flex-col items-start gap-4 rounded-2xl border border-[#dedcd2] bg-[#f6f4ee] p-5">
+          <h2 className="text-lg font-semibold text-[#283b30]">
             Review before sending
           </h2>
-          <ul className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-3">
+          <ul className="flex w-full flex-col items-start gap-3">
             {reviewDetails.map((item) => (
-              <li
-                className="relative flex w-full flex-[0_0_auto] items-center gap-2.5"
-                key={item.label}
-              >
+              <li className="flex w-full items-center gap-2.5" key={item.label}>
                 <span
                   aria-hidden="true"
-                  className="relative h-1.5 w-1.5 rounded-[3px] bg-[#617b58]"
+                  className="h-1.5 w-1.5 rounded-[3px] bg-[#617b58]"
                 />
-                <span className="relative mt-[-1.00px] flex-1 [font-family:'Inter',Helvetica] text-[13px] font-normal leading-[normal] tracking-[0] text-[#283b30]">
+                <span className="flex-1 text-[13px] text-[#283b30]">
                   {item.label}: {item.value}
                 </span>
               </li>
             ))}
           </ul>
-          <div className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-2 overflow-hidden rounded-xl bg-[#e8ede3] p-4">
-            <h3 className="relative mt-[-1.00px] w-fit [font-family:'Inter',Helvetica] text-[13px] font-semibold leading-[normal] tracking-[0] text-[#355b43]">
+          <div className="flex w-full flex-col gap-2 rounded-xl bg-[#e8ede3] p-4">
+            <h3 className="text-[13px] font-semibold text-[#355b43]">
               How this request works
             </h3>
-            <p className="relative self-stretch [font-family:'Inter',Helvetica] text-[13px] font-normal leading-[19.5px] tracking-[0] text-[#283b30]">
-              This request is sent for approval. The tree owner or an admin can
-              review the details, ask questions, and then choose whether to add
-              {` ${values.fullName || "this person"}`} to the Bennett family
-              tree.
+            <p className="text-[13px] leading-[19.5px] text-[#283b30]">
+              The Tree Owner will review this request. The database changes only
+              if the request is approved.
             </p>
           </div>
-          <div className="relative flex w-full flex-[0_0_auto] flex-col items-start gap-3">
+          {formError && (
+            <p className="w-full rounded-lg bg-[#f7ece6] p-3 text-sm text-[#8a3f2c]">
+              {formError}
+            </p>
+          )}
+          {submitted && (
+            <p className="w-full rounded-lg bg-[#e8ede3] p-3 text-sm text-[#355b43]">
+              Request is ready for the SuggestRequest API.
+            </p>
+          )}
+          <div className="flex w-full flex-col gap-3">
             <button
-              className="relative flex h-12 w-full items-center gap-2 overflow-hidden rounded-[10px] bg-[#355b43] px-4 [font-family:'Inter',Helvetica] text-sm font-semibold leading-[normal] tracking-[0] text-white"
+              className="flex h-12 w-full items-center rounded-[10px] bg-[#355b43] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={relationshipRequestUnavailable}
               type="submit"
             >
-              {submitted ? "Request submitted" : "Submit request"}
+              Submit request
             </button>
             <button
-              className="relative flex h-12 w-full items-center gap-2 overflow-hidden rounded-[10px] border border-solid border-[#dedcd2] bg-[#fffdf9] px-4 [font-family:'Inter',Helvetica] text-sm font-semibold leading-[normal] tracking-[0] text-[#283b30]"
-              onClick={handleReset}
+              className="flex h-12 w-full items-center rounded-[10px] border border-[#dedcd2] bg-white px-4 text-sm font-semibold text-[#283b30]"
+              onClick={onClose}
               type="button"
             >
               Cancel

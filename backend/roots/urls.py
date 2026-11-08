@@ -22,7 +22,7 @@ from trees.views import (
 def popup_complete(request):
     """Last page of the Google login popup: tells the React window login worked, then closes."""
     frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
-    return HttpResponse(f"""
+    return HttpResponse("""
     <script>
       if (window.opener) {
         window.opener.postMessage(
