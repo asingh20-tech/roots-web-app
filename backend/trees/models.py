@@ -217,7 +217,7 @@ class FamilyMember(models.Model):
         max_length=255,
         null=True,
         blank=True,
-        validators=[FileExtensionValidator(PHOTO_EXTENSIONS), validate_upload_size],
+                validators=[FileExtensionValidator(PHOTO_EXTENSIONS), validate_upload_size, validate_file_signature],
     )
     # FR-21: bumped on every save; suggestions record the version they saw.
     version = models.PositiveIntegerField(default=1, editable=False)
