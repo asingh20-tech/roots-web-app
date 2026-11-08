@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { RootsSignIn } from "./screens/RootsSignIn";
 import { RootsHome } from "./screens/Wireframe/RootsHome";
-import { RootsBennettFamily } from "./screens/RootsBennettFamily";
+import { RootsFamilyTree } from "./screens/RootsFamilyTree";
 
 const app = document.getElementById("app");
 if (app) {
@@ -14,8 +14,8 @@ if (app) {
           <Route path="/" element={<RootsHome />} />
           <Route path="/sign-in" element={<RootsSignIn />} />
           <Route
-            path="/roots-u183-bennett-family-tree"
-            element={<RootsBennettFamily />}
+            path="/family-tree"
+            element={<RootsFamilyTree />}
           />
         </Routes>
       </BrowserRouter>

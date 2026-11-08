@@ -51,7 +51,7 @@ export const AppHeaderSection = (): JSX.Element => {
       >
         <a
           className="inline-flex flex-col items-start justify-center relative self-stretch flex-[0_0_auto] border-b-[3px] [border-bottom-style:solid] border-[#355b43]"
-          href="/roots-u183-bennett-family-tree"
+          href="/family-tree"
           aria-current="page"
         >
           <span className="relative w-fit [font-family:'Inter',Helvetica] font-semibold text-[#355b43] text-sm tracking-[0] leading-[normal]">
