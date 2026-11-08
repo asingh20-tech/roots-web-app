@@ -249,13 +249,17 @@ class FamilyMember(models.Model):
         if self.birth_date and self.death_date and self.death_date < self.birth_date:
             raise ValidationError({"death_date": "Death date cannot be before birth date."})
 
-#I have to check --> this version increment happens when this instance's save() runs, not necessarily on every kind of database update. Operations like QuerySet.update() bypass this method. 
 # Also, using save(update_fields=...) can leave the incremented version unsaved unless version is included.
 
+    # Version only bumps through save(); QuerySet.update() bypasses it, so
+    # always edit members with save(). update_fields gets "version" added.
     def save(self, *args, **kwargs):
         adding = self._state.adding
         if not adding:
             self.version += 1
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "version", "updated_at"}
         super().save(*args, **kwargs)
         if not adding:
             # FR-21: pending suggestions based on an older version are now outdated.
