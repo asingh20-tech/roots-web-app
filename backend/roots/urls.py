@@ -78,5 +78,21 @@ urlpatterns = [
     path("api/trees/<int:tree_id>/members/<int:member_id>/documents/<int:pk>/", DocumentDetailView.as_view(), name="document-detail"),
     path("api/trees/<int:tree_id>/members/<int:member_id>/documents/<int:pk>/file/", DocumentFileView.as_view(), name="document-file"),
 
+       # Photos and documents, served only to Owner/Collaborators (FR-6, FR-9, FR-18, DB-7)
+    path("api/trees/<int:tree_id>/members/<int:pk>/photo/", MemberPhotoView.as_view(), name="member-photo"),
+    path("api/trees/<int:tree_id>/members/<int:member_id>/documents/", DocumentListCreateView.as_view(), name="document-list"),
+    path("api/trees/<int:tree_id>/members/<int:member_id>/documents/<int:pk>/", DocumentDetailView.as_view(), name="document-detail"),
+    path("api/trees/<int:tree_id>/members/<int:member_id>/documents/<int:pk>/file/", DocumentFileView.as_view(), name="document-file"),
+
+    # Search (FR-15)
+    path("api/search/", MemberSearchView.as_view(), name="member-search"),
+
+    # Invitations and collaborators (FR-10, FR-11, FR-19)
+    path("api/trees/<int:tree_id>/invitations/", InvitationListCreateView.as_view(), name="invitation-list"),
+    path("api/trees/<int:tree_id>/invitations/<int:pk>/", InvitationRevokeView.as_view(), name="invitation-revoke"),
+    path("api/invite/<str:token>/", InvitationAcceptView.as_view(), name="invitation-accept"),
+    path("api/trees/<int:tree_id>/collaborators/", CollaboratorListView.as_view(), name="collaborator-list"),
+    
+
    
 ]
