@@ -98,3 +98,6 @@ class RelationshipDetailView(TreeScopedMixin, RetrieveDestroyAPIView):
 
     def get_queryset(self):
         return Relationship.objects.filter(tree=self.get_tree())
+
+
+def _serve(field_file, download_name=None):    
