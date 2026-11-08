@@ -71,4 +71,12 @@ urlpatterns = [
     # Relationships (FR-5)
     path("api/trees/<int:tree_id>/relationships/", RelationshipListCreateView.as_view(), name="relationship-list"),
     path("api/trees/<int:tree_id>/relationships/<int:pk>/", RelationshipDetailView.as_view(), name="relationship-detail"),
+
+    # Photos and documents, served only to Owner/Collaborators (FR-6, FR-9, FR-18, DB-7)
+    path("api/trees/<int:tree_id>/members/<int:pk>/photo/", MemberPhotoView.as_view(), name="member-photo"),
+    path("api/trees/<int:tree_id>/members/<int:member_id>/documents/", DocumentListCreateView.as_view(), name="document-list"),
+    path("api/trees/<int:tree_id>/members/<int:member_id>/documents/<int:pk>/", DocumentDetailView.as_view(), name="document-detail"),
+    path("api/trees/<int:tree_id>/members/<int:member_id>/documents/<int:pk>/file/", DocumentFileView.as_view(), name="document-file"),
+
+   
 ]
