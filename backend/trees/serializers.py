@@ -1,7 +1,24 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.urls import reverse
 from rest_framework import serializers
 
-from .models import FamilyMember, FamilyTree, Relationship, RelationshipType
+from .models import (
+    ChangeType,
+    Document,
+    FamilyMember,
+    FamilyTree,
+    Invitation,
+    Relationship,
+    RelationshipType,
+    SuggestRequest,
+    TreeCollaborator,
+)
+from .services import EDITABLE_MEMBER_FIELDS, compare
+
+def _django_errors(exc):
+    return exc.message_dict if hasattr(exc, "error_dict") else {"non_field_errors": exc.messages}
+
 
 
 class ModelCleanMixin:
