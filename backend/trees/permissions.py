@@ -22,3 +22,11 @@ class IsTreeOwnerOrReadOnly(BasePermission):
             return True
         tree = obj if hasattr(obj, "owner_id") else obj.tree
         return tree.owner_id == request.user.pk
+
+class IsTreeOwner(BasePermission):
+    """Every method is Owner-only (invitation links, collaborator list)."""
+    message = "Only the Tree Owner can manage this."
+
+    def has_permission(self, request, view):
+        return view.get_tree().owner_id == request.user.pk
+    
