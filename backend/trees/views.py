@@ -155,3 +155,36 @@ def _serve(field_file, download_name=None):
                             content_type=mimetypes.guess_type(name)[0] or "application/octet-stream")
     response["Cache-Control"] = "private, no-store"
     return response    
+
+class MemberPhotoView(TreeScopedMixin, APIView):
+    """GET: the photo (Owner/Collaborator). PUT multipart 'photo': set it. DELETE: remove it."""
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_member(self):
+        return get_object_or_404(FamilyMember, tree=self.get_tree(), pk=self.kwargs["pk"])
+
+    def get(self, request, tree_id, pk):
+        return _serve(self.get_member().photo)
+
+    def put(self, request, tree_id, pk):
+        member = self.get_member()
+        ser = MemberPhotoSerializer(member, data=request.data)
+        ser.is_valid(raise_exception=True)
+        self._delete_after_commit(member.photo)
+        member.photo = ser.validated_data["photo"]
+        member.save()
+        return Response(FamilyMemberSerializer(member).data)
+
+    def delete(self, request, tree_id, pk):
+        member = self.get_member()
+        if member.photo:
+            self._delete_after_commit(member.photo)
+            member.photo = None
+            member.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @staticmethod
+    def _delete_after_commit(field_file):
+        if field_file and field_file.name:
+            storage, name = field_file.storage, field_file.name
+            transaction.on_commit(lambda: storage.delete(name))
