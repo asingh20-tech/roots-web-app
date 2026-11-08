@@ -20,5 +20,30 @@ class IsTreeOwnerOrReadOnly(BasePermission):
     def has_object_permission(self, request, view, obj):
         if request.method in SAFE_METHODS:
             return True
-        tree = obj if hasattr(obj, "owner_id") else obj.tree
+        if hasattr(view, "get_tree"):
+            tree = view.get_tree()  # works for objects without .tree (Document)
+        else:
+            tree = obj if hasattr(obj, "owner_id") else obj.tree
         return tree.owner_id == request.user.pk
+
+
+class IsTreeOwner(BasePermission):
+    """Every method is Owner-only (invitation links, collaborator list)."""
+    message = "Only the Tree Owner can manage this."
+
+    def has_permission(self, request, view):
+        return view.get_tree().owner_id == request.user.pk
+
+
+class SuggestionPermission(BasePermission):
+    """GET: Owner or Collaborator (Collaborators see only their own).
+    POST create: Collaborators only (FR-12). Approve/reject: Owner only (SA-1)."""
+    message = "Only Collaborators can submit suggestions; only the Tree Owner can review them."
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        tree = view.get_tree()
+        if getattr(view, "owner_action", False):
+            return tree.owner_id == request.user.pk
+        return tree.collaborators.filter(user=request.user).exists()

@@ -34,6 +34,24 @@ def validate_upload_size(file):
     if file.size > MAX_UPLOAD_BYTES:
         raise ValidationError("File is larger than 10 MB.")
 
+# FR-18: check the file's first bytes too, so a renamed .exe can't pass as .pdf.
+FILE_SIGNATURES = {
+    "pdf": (b"%PDF-",),
+    "png": (b"\x89PNG\r\n\x1a\n",),
+    "jpg": (b"\xff\xd8\xff",),
+    "jpeg": (b"\xff\xd8\xff",),
+}  
+
+def validate_file_signature(file):
+    ext = file.name.rsplit(".", 1)[-1].lower() if "." in file.name else ""
+    signatures = FILE_SIGNATURES.get(ext)
+    if not signatures:
+        return  # FileExtensionValidator reports the bad extension
+    file.seek(0)
+    head = file.read(8)
+    file.seek(0)
+    if not head.startswith(signatures):
+        raise ValidationError(f"File content is not a valid {ext.upper()} file.")
 
 def private_upload_path(instance, filename):
     """Store uploads under MEDIA_ROOT/trees/<tree_id>/ with a random name.
@@ -199,7 +217,7 @@ class FamilyMember(models.Model):
         max_length=255,
         null=True,
         blank=True,
-        validators=[FileExtensionValidator(PHOTO_EXTENSIONS), validate_upload_size],
+                validators=[FileExtensionValidator(PHOTO_EXTENSIONS), validate_upload_size, validate_file_signature],
     )
     # FR-21: bumped on every save; suggestions record the version they saw.
     version = models.PositiveIntegerField(default=1, editable=False)
@@ -231,13 +249,17 @@ class FamilyMember(models.Model):
         if self.birth_date and self.death_date and self.death_date < self.birth_date:
             raise ValidationError({"death_date": "Death date cannot be before birth date."})
 
-#I have to check --> this version increment happens when this instance's save() runs, not necessarily on every kind of database update. Operations like QuerySet.update() bypass this method. 
 # Also, using save(update_fields=...) can leave the incremented version unsaved unless version is included.
 
+    # Version only bumps through save(); QuerySet.update() bypasses it, so
+    # always edit members with save(). update_fields gets "version" added.
     def save(self, *args, **kwargs):
         adding = self._state.adding
         if not adding:
             self.version += 1
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "version", "updated_at"}
         super().save(*args, **kwargs)
         if not adding:
             # FR-21: pending suggestions based on an older version are now outdated.
@@ -375,7 +397,7 @@ class Document(models.Model):
         upload_to=private_upload_path,
         max_length=255,
         db_column="file_path",
-        validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), validate_upload_size],
+                validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), validate_upload_size, validate_file_signature],
     )
     file_type = models.CharField(max_length=10, editable=False)  # pdf / jpg / png
     file_size = models.PositiveIntegerField(editable=False)  # bytes
@@ -439,7 +461,7 @@ class SuggestRequest(models.Model):
         max_length=255,
         null=True,
         blank=True,
-        validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), validate_upload_size],
+                validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), validate_upload_size, validate_file_signature],
     )
     based_on_version = models.PositiveIntegerField(null=True, blank=True)  # FR-21
     status = models.CharField(

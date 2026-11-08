@@ -161,7 +161,15 @@ STATIC_URL = 'static/'
 # that checks the user can access the tree.
 # The 10 MB / file-type limits (FR-6, FR-18) are enforced by validators in trees/models.py.
 
-MEDIA_ROOT = BASE_DIR / 'private_media'
+MEDIA_ROOT = Path(os.environ.get('MEDIA_ROOT', BASE_DIR / 'private_media'))
+FILE_UPLOAD_PERMISSIONS = 0o640
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')  
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 3600
 
 
 # Email (not used for invitations — links are shared manually)

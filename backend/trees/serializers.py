@@ -1,7 +1,24 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.urls import reverse
 from rest_framework import serializers
 
-from .models import FamilyMember, FamilyTree, Relationship, RelationshipType
+from .models import (
+    ChangeType,
+    Document,
+    FamilyMember,
+    FamilyTree,
+    Invitation,
+    Relationship,
+    RelationshipType,
+    SuggestRequest,
+    TreeCollaborator,
+)
+from .services import EDITABLE_MEMBER_FIELDS, compare
+
+
+def _django_errors(exc):
+    return exc.message_dict if hasattr(exc, "error_dict") else {"non_field_errors": exc.messages}
 
 
 class ModelCleanMixin:
@@ -16,7 +33,7 @@ class ModelCleanMixin:
         try:
             instance.full_clean()
         except DjangoValidationError as exc:
-            raise serializers.ValidationError( exc.message_dict if hasattr(exc, "error_dict") else {"non_field_errors": exc.messages})
+            raise serializers.ValidationError(_django_errors(exc))
         instance.save()
         return instance
 
@@ -44,17 +61,71 @@ class FamilyTreeSerializer(ModelCleanMixin, serializers.ModelSerializer):
 
 class FamilyMemberSerializer(ModelCleanMixin, serializers.ModelSerializer):
     """FamilyMember as JSON (FR-4, IR-2). Tree comes from the URL, not the body.
-    Photo is read-only here; uploads get their own endpoint (FR-6)."""
+    Photo is uploaded at .../members/<id>/photo/. photo_url points to the
+    protected view, never the raw storage path (DB-7)."""
     full_name = serializers.SerializerMethodField()
+    photo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = FamilyMember
         fields = ["id", "first_name", "last_name", "full_name", "gender",
-                  "birth_date", "death_date", "photo", "version", "updated_at"]
-        read_only_fields = ["id", "full_name", "photo", "version", "updated_at"]
+                  "birth_date", "death_date", "photo_url", "version", "updated_at"]
+        read_only_fields = ["id", "full_name", "photo_url", "version", "updated_at"]
 
     def get_full_name(self, obj):
         return f"{obj.first_name} {obj.last_name}"
+
+    def get_photo_url(self, obj):
+        if not obj.photo:
+            return None
+        return reverse("member-photo", args=[obj.tree_id, obj.pk])
+
+
+class DocumentSerializer(serializers.ModelSerializer):
+    """Upload: multipart field 'file' (FR-6, FR-18, IR-4). Model validators
+    reject wrong types, fake extensions and files over 10 MB with a message."""
+    url = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Document
+        fields = ["id", "file", "name", "url", "file_type", "file_size", "uploaded_at"]
+        read_only_fields = ["id", "name", "url", "file_type", "file_size", "uploaded_at"]
+        extra_kwargs = {"file": {"write_only": True}}
+
+    def get_url(self, obj):
+        return reverse("document-file", args=[obj.member.tree_id, obj.member_id, obj.pk])
+
+    def get_name(self, obj):
+        return str(obj)
+
+
+class FamilyMemberDetailSerializer(FamilyMemberSerializer):
+    """FR-9: profile = member details + attached documents."""
+    documents = DocumentSerializer(many=True, read_only=True)
+
+    class Meta(FamilyMemberSerializer.Meta):
+        fields = FamilyMemberSerializer.Meta.fields + ["documents"]
+        read_only_fields = FamilyMemberSerializer.Meta.read_only_fields + ["documents"]
+
+
+class MemberPhotoSerializer(serializers.ModelSerializer):
+    """PUT multipart field 'photo' (JPG/PNG, 10 MB)."""
+
+    class Meta:
+        model = FamilyMember
+        fields = ["photo"]
+        extra_kwargs = {"photo": {"required": True, "allow_null": False}}
+
+
+class SearchResultSerializer(FamilyMemberSerializer):
+    """FR-15: a member plus which tree it came from."""
+    tree_id = serializers.IntegerField(read_only=True)
+    tree_name = serializers.CharField(source="tree.name", read_only=True)
+
+    class Meta(FamilyMemberSerializer.Meta):
+        fields = ["id", "tree_id", "tree_name", "first_name", "last_name", "full_name",
+                  "birth_date", "death_date", "photo_url"]
 
 
 class RelationshipSerializer(ModelCleanMixin, serializers.ModelSerializer):
@@ -79,3 +150,146 @@ class RelationshipSerializer(ModelCleanMixin, serializers.ModelSerializer):
         attrs["member1"], attrs["member2"], attrs["relationship_type"] = Relationship.normalize(m1, m2, attrs["relationship_type"])
         attrs["tree"] = tree
         return attrs
+
+
+# ---------- Collaboration (FR-10 .. FR-14, FR-21) ----------
+
+class InvitationSerializer(serializers.ModelSerializer):
+    """Only a hash is stored (SA-2), so 'url' is returned once, on create."""
+    is_valid = serializers.BooleanField(read_only=True)
+    collaborator_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Invitation
+        fields = ["id", "is_active", "is_valid", "created_at", "expires_at", "revoked_at",
+                  "collaborator_count"]
+        read_only_fields = fields
+
+    def get_collaborator_count(self, obj):
+        return obj.collaborators.count()
+
+
+class CollaboratorSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source="user.email", read_only=True)
+    name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TreeCollaborator
+        fields = ["id", "user", "email", "name", "joined_at"]
+        read_only_fields = fields
+
+    def get_name(self, obj):
+        return obj.user.get_full_name() or obj.user.email
+
+
+class SuggestionSerializer(serializers.ModelSerializer):
+    """FR-12 submit (Collaborator) / FR-13 list (Owner).
+
+    ADD_MEMBER:    proposed_data = {first_name, last_name, ...}, no target.
+    UPDATE_MEMBER: target_member + proposed_data with only the changed fields.
+    ADD_MEDIA:     target_member + proposed_file (multipart).
+    Data is validated now, so a bad suggestion fails at submit, not at approval.
+    """
+    submitted_by_name = serializers.SerializerMethodField()
+    target_member_name = serializers.SerializerMethodField()
+    file_url = serializers.SerializerMethodField()
+    is_outdated = serializers.SerializerMethodField()
+    comparison = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SuggestRequest
+        fields = ["id", "change_type", "description", "target_member", "target_member_name",
+                  "proposed_data", "proposed_file", "file_url", "status", "is_outdated",
+                  "comparison", "based_on_version", "submitted_by_name", "created_at",
+                  "reviewed_at"]
+        read_only_fields = ["id", "target_member_name", "file_url", "status", "is_outdated",
+                            "comparison", "based_on_version", "submitted_by_name",
+                            "created_at", "reviewed_at"]
+        extra_kwargs = {"proposed_file": {"write_only": True}}
+
+    # ----- output -----
+    def get_submitted_by_name(self, obj):
+        return obj.submitted_by.get_full_name() or obj.submitted_by.email
+
+    def get_target_member_name(self, obj):
+        return str(obj.target_member) if obj.target_member_id else None
+
+    def get_file_url(self, obj):
+        if not obj.proposed_file:
+            return None
+        return reverse("suggestion-file", args=[obj.tree_id, obj.pk])
+
+    def get_is_outdated(self, obj):
+        return bool(
+            obj.target_member_id
+            and obj.status in ("PENDING", "OUTDATED")
+            and obj.based_on_version is not None
+            and obj.target_member.version != obj.based_on_version
+        )
+
+    def get_comparison(self, obj):
+        return compare(obj)
+
+    # ----- input -----
+    def validate(self, attrs):
+        tree = self.context["tree"]
+        kind = attrs["change_type"]
+        target = attrs.get("target_member")
+        data = attrs.get("proposed_data") or {}
+
+        if target and target.tree_id != tree.pk:  # DB-2
+            raise serializers.ValidationError({"target_member": "Member is not in this tree."})
+        if kind != ChangeType.ADD_MEMBER and not target:
+            raise serializers.ValidationError({"target_member": "This change type needs a target member."})
+        if kind == ChangeType.ADD_MEMBER and target:
+            raise serializers.ValidationError({"target_member": "ADD_MEMBER must not have a target."})
+
+        if kind == ChangeType.ADD_MEDIA:
+            if not attrs.get("proposed_file"):
+                raise serializers.ValidationError({"proposed_file": "ADD_MEDIA needs a file."})
+            attrs["proposed_data"] = None
+            return attrs
+
+        if attrs.get("proposed_file"):
+            raise serializers.ValidationError({"proposed_file": "Only ADD_MEDIA takes a file."})
+        if not isinstance(data, dict) or not data:
+            raise serializers.ValidationError({"proposed_data": "Give the member fields to add or change."})
+        unknown = set(data) - EDITABLE_MEMBER_FIELDS
+        if unknown:
+            raise serializers.ValidationError({"proposed_data": f"Unknown fields: {', '.join(sorted(unknown))}"})
+
+        # Validate the values as the member would be after approval.
+        member_ser = FamilyMemberSerializer(
+            instance=target, data=data, partial=kind == ChangeType.UPDATE_MEMBER
+        )
+        if not member_ser.is_valid():
+            raise serializers.ValidationError({"proposed_data": member_ser.errors})
+        clean = {k: v for k, v in member_ser.validated_data.items() if k in data}
+        preview = FamilyMember(tree=tree)
+        if target:
+            for field in EDITABLE_MEMBER_FIELDS:
+                setattr(preview, field, getattr(target, field))
+        for field, value in clean.items():
+            setattr(preview, field, value)
+        try:
+            preview.clean()  # FR-16: death before birth
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"proposed_data": _django_errors(exc)})
+
+        attrs["proposed_data"] = {
+            k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in clean.items()
+        }
+        return attrs
+
+    def create(self, validated_data):
+        instance = SuggestRequest(**validated_data)
+        try:
+            instance.full_clean()
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(_django_errors(exc))
+        instance.save()
+        return instance
+
+
+def invitation_url(raw_token):
+    return f"{settings.FRONTEND_URL}/invite/{raw_token}"
