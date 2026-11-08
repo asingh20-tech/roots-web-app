@@ -29,4 +29,17 @@ class IsTreeOwner(BasePermission):
 
     def has_permission(self, request, view):
         return view.get_tree().owner_id == request.user.pk
-    
+
+
+class SuggestionPermission(BasePermission):
+"""GET: Owner or Collaborator (Collaborators see only their own).
+POST create: Collaborators only (FR-12). Approve/reject: Owner only (SA-1)."""
+message = "Only Collaborators can submit suggestions; only the Tree Owner can review them."
+
+def has_permission(self, request, view):
+    if request.method in SAFE_METHODS:
+        return True
+    tree = view.get_tree()
+    if getattr(view, "owner_action", False):
+        return tree.owner_id == request.user.pk
+    return tree.collaborators.filter(user=request.user).exists()
