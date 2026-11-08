@@ -15,7 +15,10 @@ REVIEWABLE = [SuggestionStatus.PENDING, SuggestionStatus.OUTDATED]
 
 
 class OutdatedSuggestion(ValidationError):
-    """Raised so the UI can show current vs proposed values side by side (FR-21)."""
+    """Raised so the UI can show current vs proposed values side by side (FR-21).
+
+    The transaction is rolled back when this is raised, so the caller must
+    mark the suggestion OUTDATED itself (see mark_outdated)."""
 
 
 def _lock_reviewable(suggestion_id, owner):
@@ -35,12 +38,34 @@ def _member_fields(data):
     return data
 
 
-def _finish(s, owner, status):
+def _finish(s, owner, status, extra_fields=()):
     s.status = status
     s.reviewed_by = owner
     s.reviewed_at = timezone.now()
-    s.save(update_fields=["status", "reviewed_by", "reviewed_at"])
+    s.save(update_fields=["status", "reviewed_by", "reviewed_at", *extra_fields])
     return s
+
+
+def compare(suggestion):
+    """FR-21: {field: {"current": ..., "proposed": ...}} for UPDATE_MEMBER."""
+    if suggestion.change_type != ChangeType.UPDATE_MEMBER or not suggestion.target_member_id:
+        return None
+    member = suggestion.target_member
+    out = {}
+    for field, proposed in (suggestion.proposed_data or {}).items():
+        current = getattr(member, field, None)
+        out[field] = {
+            "current": current.isoformat() if hasattr(current, "isoformat") else current,
+            "proposed": proposed,
+        }
+    return out
+
+
+def mark_outdated(suggestion_id):
+    """Call after catching OutdatedSuggestion (outside the rolled-back block)."""
+    SuggestRequest.objects.filter(pk=suggestion_id, status=SuggestionStatus.PENDING).update(
+        status=SuggestionStatus.OUTDATED
+    )
 
 
 @transaction.atomic
@@ -48,17 +73,17 @@ def approve_suggestion(suggestion_id, owner, confirm_outdated=False):
     """Apply a suggestion. If the member changed since it was submitted, the
     Owner must review the side-by-side view and pass confirm_outdated=True."""
     s = _lock_reviewable(suggestion_id, owner)
+    extra = []
 
     if s.change_type == ChangeType.ADD_MEMBER:
         member = FamilyMember(tree=s.tree, **_member_fields(s.proposed_data))
         member.full_clean()
         member.save()
+        s.target_member = member  # link the suggestion to the member it created
+        extra.append("target_member")
     else:
         member = FamilyMember.objects.select_for_update().get(pk=s.target_member_id)
         if member.version != s.based_on_version and not confirm_outdated:
-            if s.status != SuggestionStatus.OUTDATED:
-                s.status = SuggestionStatus.OUTDATED
-                s.save(update_fields=["status"])
             raise OutdatedSuggestion("Member changed since this suggestion was made.")
         if s.change_type == ChangeType.UPDATE_MEMBER:
             for field, value in _member_fields(s.proposed_data).items():
@@ -68,10 +93,15 @@ def approve_suggestion(suggestion_id, owner, confirm_outdated=False):
         elif s.change_type == ChangeType.ADD_MEDIA:
             Document.objects.create(member=member, file=s.proposed_file, uploaded_by=s.submitted_by)
 
-    return _finish(s, owner, SuggestionStatus.APPROVED)
+    return _finish(s, owner, SuggestionStatus.APPROVED, extra)
 
 
 @transaction.atomic
 def reject_suggestion(suggestion_id, owner):
     s = _lock_reviewable(suggestion_id, owner)
+    if s.proposed_file:  # rejected media is discarded (FR-14)
+        storage, name = s.proposed_file.storage, s.proposed_file.name
+        transaction.on_commit(lambda: storage.delete(name))
+        s.proposed_file = None
+        return _finish(s, owner, SuggestionStatus.REJECTED, ["proposed_file"])
     return _finish(s, owner, SuggestionStatus.REJECTED)
