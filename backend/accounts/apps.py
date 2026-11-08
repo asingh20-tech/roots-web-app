@@ -1,5 +1,8 @@
 from django.apps import AppConfig
 
 
-class AccountsConfig(AppConfig):
-    name = "accounts"
+class TreesConfig(AppConfig):
+    name = "trees"
+
+    def ready(self):
+        from . import signals  

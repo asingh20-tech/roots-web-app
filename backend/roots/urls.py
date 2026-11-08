@@ -92,7 +92,14 @@ urlpatterns = [
     path("api/trees/<int:tree_id>/invitations/<int:pk>/", InvitationRevokeView.as_view(), name="invitation-revoke"),
     path("api/invite/<str:token>/", InvitationAcceptView.as_view(), name="invitation-accept"),
     path("api/trees/<int:tree_id>/collaborators/", CollaboratorListView.as_view(), name="collaborator-list"),
-    
+    path("api/trees/<int:tree_id>/collaborators/<int:pk>/", CollaboratorRemoveView.as_view(), name="collaborator-remove"),
+
+    # Suggestions (FR-12, FR-13, FR-14, FR-21)
+    path("api/trees/<int:tree_id>/suggestions/", SuggestionListCreateView.as_view(), name="suggestion-list"),
+    path("api/trees/<int:tree_id>/suggestions/<int:pk>/", SuggestionDetailView.as_view(), name="suggestion-detail"),
+    path("api/trees/<int:tree_id>/suggestions/<int:pk>/file/", SuggestionFileView.as_view(), name="suggestion-file"),
+    path("api/trees/<int:tree_id>/suggestions/<int:pk>/approve/", SuggestionApproveView.as_view(), name="suggestion-approve"),
+    path("api/trees/<int:tree_id>/suggestions/<int:pk>/reject/", SuggestionRejectView.as_view(), name="suggestion-reject"),
 
    
 ]
