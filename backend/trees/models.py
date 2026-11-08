@@ -34,6 +34,13 @@ def validate_upload_size(file):
     if file.size > MAX_UPLOAD_BYTES:
         raise ValidationError("File is larger than 10 MB.")
 
+# FR-18: check the file's first bytes too, so a renamed .exe can't pass as .pdf.
+FILE_SIGNATURES = {
+    "pdf": (b"%PDF-",),
+    "png": (b"\x89PNG\r\n\x1a\n",),
+    "jpg": (b"\xff\xd8\xff",),
+    "jpeg": (b"\xff\xd8\xff",),
+}    
 
 def private_upload_path(instance, filename):
     """Store uploads under MEDIA_ROOT/trees/<tree_id>/ with a random name.
