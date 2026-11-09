@@ -56,6 +56,7 @@ export const RootsFamilyTree = (): JSX.Element => {
         <OwnerAddMemberModal
           onClose={() => setIsOwnerFormOpen(false)}
           onSubmit={handleTreeSubmit}
+          members={members}
         />
       )}
       <FamilyTreeToolbarSection
