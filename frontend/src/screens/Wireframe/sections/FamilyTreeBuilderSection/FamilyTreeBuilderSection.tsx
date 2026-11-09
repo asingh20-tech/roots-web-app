@@ -1,33 +1,23 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-type Gender = "Male" | "Female" | "Other";
-
-const genderOptions: Gender[] = ["Male", "Female", "Other"];
-
 export const FamilyTreeBuilderSection = (): JSX.Element => {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [gender, setGender] = useState<Gender>("Male");
-  const [dateOfBirth, setDateOfBirth] = useState("");
-  const [placeOfBirth, setPlaceOfBirth] = useState("");
-  const [treeName, setTreeName] = useState("You");
+  const [treeName, setTreeName] = useState("Your family tree");
   const [newTreeName, setNewTreeName] = useState("");
   const [treeDescription, setTreeDescription] = useState("");
 
   const handleCreateTree = (): void => {
-    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
-    setTreeName(fullName || "You");
+    setTreeName(newTreeName.trim() || "Your family tree");
   };
 
   return (
     <main className="flex min-h-0 w-full flex-1 items-stretch">
       <section
-        aria-labelledby="about-you-heading"
+        aria-labelledby="create-tree-heading"
         className="flex flex-col h-full w-[480px] shrink-0 items-start gap-7 p-12 relative bg-[#ede8dc] border-r-2 [border-right-style:solid] border-[#c8bfa8]"
       >
         <h1
-          id="about-you-heading"
+          id="create-tree-heading"
           className="w-fit mt-[-2.00px] [font-family:'Lora',Helvetica] text-[#2e3b2c] text-[22px] tracking-[2.00px] relative font-normal leading-[normal]"
           >
             CREATE YOUR TREE
@@ -46,7 +36,7 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
       type="text"
       value={newTreeName}
       onChange={(event) => setNewTreeName(event.target.value)}
-      placeholder="e.g. The Bennett Family Tree"
+      placeholder="e.g. Smith Family Tree"
       className="absolute inset-0 w-full h-full px-3.5 [font-family:'Inter',Helvetica] font-normal text-[#2e3b2c] text-[15px] tracking-[0] leading-[normal] placeholder:text-[#b0a48e]"
     />
   </div>
@@ -57,6 +47,7 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
     htmlFor="tree-description"
     className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-semibold text-[#7a6e5c] text-[11px] tracking-[2.00px] leading-[normal] whitespace-nowrap"
   >
+    {/* Optional based on DB restrictions */}
     TREE DESCRIPTION (OPTIONAL)
   </label>
   <div className="relative self-stretch w-full h-[46px] bg-[#faf8f4] rounded overflow-hidden border border-solid border-[#c8bfa8]">
@@ -71,130 +62,6 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
     />
   </div>
 </div>
-        <div
-          aria-hidden="true"
-          className="relative self-stretch w-full h-px bg-[#c8bfa8]"
-        />
-        <div className="flex flex-col items-start gap-2 relative self-stretch w-full flex-[0_0_auto]">
-          <label
-            htmlFor="first-name"
-            className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-semibold text-[#7a6e5c] text-[11px] tracking-[2.00px] leading-[normal] whitespace-nowrap"
-          >
-            FIRST NAME
-          </label>
-          <div className="relative self-stretch w-full h-[46px] bg-[#faf8f4] rounded overflow-hidden border border-solid border-[#c8bfa8]">
-            <input
-              id="first-name"
-              name="firstName"
-              type="text"
-              autoComplete="given-name"
-              value={firstName}
-              onChange={(event) => setFirstName(event.target.value)}
-              placeholder="e.g. Sarah"
-              className="absolute inset-0 w-full h-full px-3.5 [font-family:'Inter',Helvetica] font-normal text-[#2e3b2c] text-[15px] tracking-[0] leading-[normal] placeholder:text-[#b0a48e]"
-            />
-          </div>
-        </div>
-        <div className="flex flex-col items-start gap-2 relative self-stretch w-full flex-[0_0_auto]">
-          <label
-            htmlFor="last-name"
-            className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-semibold text-[#7a6e5c] text-[11px] tracking-[2.00px] leading-[normal] whitespace-nowrap"
-          >
-            LAST NAME / SURNAME
-          </label>
-          <div className="relative self-stretch w-full h-[46px] bg-[#faf8f4] rounded overflow-hidden border border-solid border-[#c8bfa8]">
-            <input
-              id="last-name"
-              name="lastName"
-              type="text"
-              autoComplete="family-name"
-              value={lastName}
-              onChange={(event) => setLastName(event.target.value)}
-              placeholder="e.g. Bennett"
-              className="absolute inset-0 w-full h-full px-3.5 [font-family:'Inter',Helvetica] font-normal text-[#2e3b2c] text-[15px] tracking-[0] leading-[normal] placeholder:text-[#b0a48e]"
-            />
-          </div>
-        </div>
-        <fieldset className="flex flex-col items-start gap-2.5 relative self-stretch w-full flex-[0_0_auto]">
-          <legend className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-semibold text-[#7a6e5c] text-[11px] tracking-[2.00px] leading-[normal] whitespace-nowrap">
-            GENDER
-          </legend>
-          <div className="flex items-start gap-3 relative self-stretch w-full flex-[0_0_auto]">
-            {genderOptions.map((option) => {
-              const selected = gender === option;
-
-              return (
-                <label
-                  key={option}
-                  className={`inline-flex items-center gap-2 px-4 py-2.5 relative flex-[0_0_auto] bg-[#faf8f4] rounded border border-solid ${
-                    selected ? "border-[#4a5e47]" : "border-[#c8bfa8]"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="gender"
-                    value={option}
-                    checked={selected}
-                    onChange={() => setGender(option)}
-                    className="sr-only"
-                  />
-                  <span
-                    aria-hidden="true"
-                    className={`relative w-3.5 h-3.5 rounded-[7px] border border-solid ${
-                      selected
-                        ? "bg-[#4a5e47] border-[#4a5e47]"
-                        : "bg-[#faf8f4] border-[#c8bfa8]"
-                    }`}
-                  />
-                  <span className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-normal text-[#2e3b2c] text-sm tracking-[0] leading-[normal]">
-                    {option}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        </fieldset>
-        <div className="flex flex-col items-start gap-2 relative self-stretch w-full flex-[0_0_auto]">
-          <label
-            htmlFor="date-of-birth"
-            className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-semibold text-[#7a6e5c] text-[11px] tracking-[2.00px] leading-[normal] whitespace-nowrap"
-          >
-            DATE OF BIRTH
-          </label>
-          <div className="relative self-stretch w-full h-[46px] bg-[#faf8f4] rounded overflow-hidden border border-solid border-[#c8bfa8]">
-            <input
-              id="date-of-birth"
-              name="dateOfBirth"
-              type="text"
-              inputMode="numeric"
-              autoComplete="bday"
-              value={dateOfBirth}
-              onChange={(event) => setDateOfBirth(event.target.value)}
-              placeholder="MM / DD / YYYY"
-              className="absolute inset-0 w-full h-full px-3.5 [font-family:'Inter',Helvetica] font-normal text-[#2e3b2c] text-[15px] tracking-[0] leading-[normal] placeholder:text-[#b0a48e]"
-            />
-          </div>
-        </div>
-        <div className="flex flex-col items-start gap-2 relative self-stretch w-full flex-[0_0_auto]">
-          <label
-            htmlFor="place-of-birth"
-            className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-semibold text-[#7a6e5c] text-[11px] tracking-[2.00px] leading-[normal] whitespace-nowrap"
-          >
-            PLACE OF BIRTH
-          </label>
-          <div className="relative self-stretch w-full h-[46px] bg-[#faf8f4] rounded overflow-hidden border border-solid border-[#c8bfa8]">
-            <input
-              id="place-of-birth"
-              name="placeOfBirth"
-              type="text"
-              autoComplete="birthplace"
-              value={placeOfBirth}
-              onChange={(event) => setPlaceOfBirth(event.target.value)}
-              placeholder="City, Country"
-              className="absolute inset-0 w-full h-full px-3.5 [font-family:'Inter',Helvetica] font-normal text-[#2e3b2c] text-[15px] tracking-[0] leading-[normal] placeholder:text-[#b0a48e]"
-            />
-          </div>
-        </div>
       </section>
       <section className="flex flex-col h-full min-w-0 items-center gap-9 px-[60px] py-[52px] relative flex-1 grow bg-[#f5f0e8]">
         <header className="flex flex-col items-center gap-2.5 relative self-stretch w-full flex-[0_0_auto]">
@@ -202,9 +69,9 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
             Begin Your Family Tree
           </h2>
           <p className="relative self-stretch [font-family:'Inter',Helvetica] font-normal text-[#7a6e5c] text-[15px] text-center tracking-[0] leading-[normal]">
-            Fill in your details on the left, then create your tree.
+            Give your family tree a name and optional description.
             <br />
-            You are the root — everyone else branches from you.
+            You can add family members after the tree is created.
           </p>
         </header>
         <div
@@ -217,12 +84,12 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
                 {treeName}
               </div>
               <div className="relative w-fit [font-family:'Inter',Helvetica] font-normal text-[#7a6e5c] text-[11px] tracking-[1.00px] leading-[normal] whitespace-nowrap">
-                THE ROOT
+                FAMILY TREE
               </div>
             </div>
           </div>
           <p className="relative w-fit [font-family:'Inter',Helvetica] font-normal text-[#b0a48e] text-xs text-center tracking-[0.50px] leading-[normal]">
-            Your tree starts with just you.
+            Your tree is ready for its first family member.
           </p>
         </div>
         <div className="flex flex-col gap-3.5 self-stretch w-full items-center relative flex-[0_0_auto]">
@@ -245,7 +112,7 @@ export const FamilyTreeBuilderSection = (): JSX.Element => {
             </button>
             <Link
               className="inline-flex items-center justify-center gap-3 px-12 py-[18px] relative flex-[0_0_auto] bg-[#4a5e47] rounded-md shadow-[0px_4px_12px_#00000022]"
-              to="/roots-u183-bennett-family-tree"
+              to="/family-tree"
             >
               <span className="relative w-5 h-5" aria-hidden="true">
                 <span className="relative w-[75.00%] h-[75.00%] top-[12.50%] left-[12.50%] flex">
