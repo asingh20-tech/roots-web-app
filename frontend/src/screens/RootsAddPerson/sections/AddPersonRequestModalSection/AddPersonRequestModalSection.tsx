@@ -10,7 +10,7 @@ type RelationshipType =
   | "SIBLING";
 
 // Writable fields that will be placed in the DB for ADD_MEMBER.
-type MemberFormValues = {
+export type MemberFormValues = {
   firstName: string;
   lastName: string;
   gender: Gender;
@@ -21,7 +21,7 @@ type MemberFormValues = {
 
 // Writable fields that will be placed in the DB for ADD_RELATIONSHIP.
 // Member IDs remain strings here because HTML select values are strings.
-type RelationshipFormValues = {
+export type RelationshipFormValues = {
   member1: string;
   member2: string;
   relationshipType: RelationshipType;
@@ -34,10 +34,21 @@ type MemberOption = {
   fullName: string;
 };
 
+export type TreeSubmission =
+  | {
+      type: "ADD_MEMBER";
+      values: MemberFormValues;
+    }
+  | {
+      type: "ADD_RELATIONSHIP";
+      values: RelationshipFormValues;
+    };
+
 type AddPersonRequestModalSectionProps = {
   onClose: () => void;
   // Later, pass members returned by GET /api/trees/:treeId/members/.
   members?: MemberOption[];
+  onTreeSubmit?: (submission: TreeSubmission) => void;
 };
 
 const initialMemberValues: MemberFormValues = {
@@ -78,6 +89,7 @@ const relationshipOptions: Array<{
 export const AddPersonRequestModalSection = ({
   onClose,
   members = [],
+  onTreeSubmit,
 }: AddPersonRequestModalSectionProps): JSX.Element => {
   const [requestType, setRequestType] =
     useState<RequestType>("ADD_MEMBER");
@@ -161,22 +173,35 @@ export const AddPersonRequestModalSection = ({
     ];
   }, [memberValues, members, relationshipValues, requestType]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-
-    if (
-      requestType === "ADD_RELATIONSHIP" &&
-      relationshipValues.member1 === relationshipValues.member2
-    ) {
-      setFormError("A member cannot have a relationship with themselves.");
-      return;
+//this makes it so the form passes the information to the parent component first
+const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
+  event.preventDefault();
+  if (
+    requestType === "ADD_RELATIONSHIP" &&
+    relationshipValues.member1 === relationshipValues.member2
+  ) {
+    setFormError("A member cannot have a relationship with themselves.");
+    return;
+  }
+  setFormError("");
+  if (onTreeSubmit) {
+    if (requestType === "ADD_MEMBER") {
+      onTreeSubmit({
+        type: "ADD_MEMBER",
+        values: memberValues,
+      });
+    } else {
+      onTreeSubmit({
+        type: "ADD_RELATIONSHIP",
+        values: relationshipValues,
+      });
     }
+    return;
+  }
+  // Preserve the existing request behavior.
+  setSubmitted(true);
+};
 
-    // Connect this to SuggestRequest after its serializer and endpoint are ready.
-    // Convert empty optional dates to null and selected member IDs to numbers.
-    setFormError("");
-    setSubmitted(true);
-  };
 
   const relationshipRequestUnavailable =
     requestType === "ADD_RELATIONSHIP" && members.length < 2;
