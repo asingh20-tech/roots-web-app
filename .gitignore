@@ -24,3 +24,5 @@ db.sqlite3
 .env.vscode/
 
 backend/private_media/
+
+frontend/.screen-graph.json

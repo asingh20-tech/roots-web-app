@@ -21,8 +21,8 @@ def delete_document_file(sender, instance, **kwargs):
 
 @receiver(post_delete, sender=FamilyMember)
 def delete_family_member_file(sender, instance, **kwargs):
-    _delete_file(instance.file)
+    _delete_file(instance.photo)
 
 @receiver(post_delete, sender=SuggestRequest)
 def delete_suggest_request_file(sender, instance, **kwargs):
-    _delete_file(instance.file)
+    _delete_file(instance.proposed_file)
