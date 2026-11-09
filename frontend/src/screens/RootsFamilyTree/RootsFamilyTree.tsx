@@ -14,6 +14,7 @@ import {
 
 export const RootsFamilyTree = (): JSX.Element => {
   const [isRequestFormOpen, setIsRequestFormOpen] = useState(false);
+  const [isOwnerFormOpen, setIsOwnerFormOpen] = useState(false);
 
   const [members, setMembers] = useState<DemoMember[]>([]);
   const [relationships, setRelationships] = useState<DemoRelationship[]>([]);
