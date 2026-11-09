@@ -1,15 +1,18 @@
 
 import { useState, type FormEvent } from "react";
 import type { TreeSubmission } from "../RootsAddPerson/sections/AddPersonRequestModalSection/AddPersonRequestModalSection";
+import type { DemoMember } from "./FamilyTreeCanvas";
 
 type OwnerAddMemberModalProps = {
   onClose: () => void;
   onSubmit: (submission: TreeSubmission) => void;
+  members: DemoMember[];
 };
 
 export const OwnerAddMemberModal = ({
   onClose,
   onSubmit,
+  members,
 }: OwnerAddMemberModalProps): JSX.Element => {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
