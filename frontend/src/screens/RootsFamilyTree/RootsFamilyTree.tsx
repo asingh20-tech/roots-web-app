@@ -63,6 +63,7 @@ export const RootsFamilyTree = (): JSX.Element => {
         onRequestChange={() => setIsRequestFormOpen(true)}
         onAddMember={() => setIsOwnerFormOpen(true)}
         isOwner={true}
+        memberCount={members.length}
       />
 
       <FamilyTreeCanvas
