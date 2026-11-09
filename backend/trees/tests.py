@@ -12,6 +12,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from .models import (
+    ChangeType,
     FamilyMember,
     FamilyTree,
     Invitation,
@@ -515,4 +516,271 @@ class P1WriteEndpointTests(APITestCase):
         rel = Relationship.objects.filter(tree=self.tree).first()
         url = reverse("relationship-detail", args=[self.tree.pk, rel.pk])
         self.assertEqual(self.client.delete(url).status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Relationship.objects.filter(pk=rel.pk).exists())        
+        self.assertFalse(Relationship.objects.filter(pk=rel.pk).exists())
+
+
+class RelationshipSuggestionRequirementTests(APITestCase):
+    """SRS extension tests for collaborator-proposed relationships.
+
+    Extends FR-12 and IR-6 with ADD_RELATIONSHIP while preserving FR-5,
+    FR-13, FR-14, FR-17, IR-3, DB-2, DB-4, and SA-1.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            "relationship-owner", email="relationship-owner@example.com"
+        )
+        self.collab = User.objects.create_user(
+            "relationship-collab", email="relationship-collab@example.com"
+        )
+        self.outsider = User.objects.create_user(
+            "relationship-outsider", email="relationship-outsider@example.com"
+        )
+        self.tree = FamilyTree.objects.create(name="Relationship Tree", owner=self.owner)
+        self.other_tree = FamilyTree.objects.create(name="Other Tree", owner=self.outsider)
+        invitation, _ = Invitation.create_for(self.tree, self.owner)
+        TreeCollaborator.objects.create(
+            tree=self.tree,
+            user=self.collab,
+            invitation=invitation,
+        )
+
+        self.grandparent = FamilyMember.objects.create(
+            tree=self.tree, first_name="Grace", last_name="Lee"
+        )
+        self.parent = FamilyMember.objects.create(
+            tree=self.tree, first_name="Pat", last_name="Lee"
+        )
+        self.child = FamilyMember.objects.create(
+            tree=self.tree, first_name="Casey", last_name="Lee"
+        )
+        self.sibling = FamilyMember.objects.create(
+            tree=self.tree, first_name="Sam", last_name="Lee"
+        )
+        self.outside_member = FamilyMember.objects.create(
+            tree=self.other_tree, first_name="Outside", last_name="Person"
+        )
+        Relationship.objects.create(
+            tree=self.tree,
+            member1=self.grandparent,
+            member2=self.parent,
+            relationship_type=RelationshipType.PARENT,
+        )
+        Relationship.objects.create(
+            tree=self.tree,
+            member1=self.parent,
+            member2=self.child,
+            relationship_type=RelationshipType.PARENT,
+        )
+        self.suggestions_url = reverse("suggestion-list", args=[self.tree.pk])
+
+    def relationship_payload(self, member1, member2, relationship_type="SIBLING", **extra):
+        proposed_data = {
+            "member1": member1.pk,
+            "member2": member2.pk,
+            "relationship_type": relationship_type,
+            **extra,
+        }
+        return {
+            "change_type": ChangeType.ADD_RELATIONSHIP,
+            "description": "Relationship information supplied by a collaborator.",
+            "proposed_data": proposed_data,
+        }
+
+    # FR-12 extension, DB-4: a Collaborator creates only a pending suggestion.
+    def test_collaborator_submits_pending_relationship_without_changing_tree(self):
+        self.client.force_login(self.collab)
+        response = self.client.post(
+            self.suggestions_url,
+            self.relationship_payload(self.child, self.sibling),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        suggestion = SuggestRequest.objects.get(pk=response.data["id"])
+        self.assertEqual(suggestion.status, SuggestionStatus.PENDING)
+        self.assertIsNone(suggestion.target_member)
+        self.assertEqual(suggestion.proposed_data["member1"], self.child.pk)
+        self.assertFalse(
+            Relationship.objects.filter(
+                member1=self.child,
+                member2=self.sibling,
+                relationship_type=RelationshipType.SIBLING,
+            ).exists()
+        )
+
+    # FR-5, IR-3: CHILD is normalized and applied only after Owner approval.
+    def test_owner_approval_creates_normalized_parent_relationship(self):
+        self.client.force_login(self.collab)
+        submitted = self.client.post(
+            self.suggestions_url,
+            self.relationship_payload(self.sibling, self.child, "CHILD"),
+            format="json",
+        )
+        self.assertEqual(submitted.status_code, status.HTTP_201_CREATED, submitted.data)
+        self.assertEqual(
+            submitted.data["proposed_data"],
+            {
+                "member1": self.child.pk,
+                "member2": self.sibling.pk,
+                "relationship_type": RelationshipType.PARENT,
+                "start_date": None,
+            },
+        )
+
+        self.client.force_login(self.owner)
+        approved = self.client.post(
+            reverse("suggestion-approve", args=[self.tree.pk, submitted.data["id"]]),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(approved.status_code, status.HTTP_200_OK, approved.data)
+        self.assertEqual(approved.data["status"], SuggestionStatus.APPROVED)
+        self.assertTrue(
+            Relationship.objects.filter(
+                tree=self.tree,
+                member1=self.child,
+                member2=self.sibling,
+                relationship_type=RelationshipType.PARENT,
+            ).exists()
+        )
+
+    # FR-14: rejection discards the proposal without changing the tree.
+    def test_owner_rejection_does_not_create_relationship(self):
+        self.client.force_login(self.collab)
+        submitted = self.client.post(
+            self.suggestions_url,
+            self.relationship_payload(self.child, self.sibling),
+            format="json",
+        )
+        self.assertEqual(submitted.status_code, status.HTTP_201_CREATED, submitted.data)
+
+        self.client.force_login(self.owner)
+        rejected = self.client.post(
+            reverse("suggestion-reject", args=[self.tree.pk, submitted.data["id"]]),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(rejected.status_code, status.HTTP_200_OK, rejected.data)
+        self.assertEqual(rejected.data["status"], SuggestionStatus.REJECTED)
+        self.assertFalse(
+            Relationship.objects.filter(
+                member1=self.child,
+                member2=self.sibling,
+                relationship_type=RelationshipType.SIBLING,
+            ).exists()
+        )
+
+    # FR-5, IR-3: Spouse may include a marriage date.
+    def test_spouse_suggestion_accepts_optional_marriage_date(self):
+        self.client.force_login(self.collab)
+        response = self.client.post(
+            self.suggestions_url,
+            self.relationship_payload(
+                self.child,
+                self.sibling,
+                "SPOUSE",
+                start_date="2020-06-15",
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["proposed_data"]["start_date"], "2020-06-15")
+
+    # FR-5, IR-3: non-spouse relationships cannot contain marriage dates.
+    def test_non_spouse_suggestion_rejects_marriage_date(self):
+        self.client.force_login(self.collab)
+        response = self.client.post(
+            self.suggestions_url,
+            self.relationship_payload(
+                self.child,
+                self.sibling,
+                "SIBLING",
+                start_date="2020-06-15",
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(SuggestRequest.objects.filter(change_type=ChangeType.ADD_RELATIONSHIP).exists())
+
+    # DB-2: both proposed members must already belong to the selected tree.
+    def test_cross_tree_relationship_suggestion_is_rejected(self):
+        self.client.force_login(self.collab)
+        response = self.client.post(
+            self.suggestions_url,
+            self.relationship_payload(self.child, self.outside_member),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # FR-17, DB-3: a proposal cannot make a member their own ancestor.
+    def test_ancestor_cycle_relationship_suggestion_is_rejected(self):
+        self.client.force_login(self.collab)
+        response = self.client.post(
+            self.suggestions_url,
+            self.relationship_payload(
+                self.child,
+                self.grandparent,
+                RelationshipType.PARENT,
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # FR-5: a relationship already present in the tree cannot be proposed again.
+    def test_duplicate_relationship_suggestion_is_rejected(self):
+        self.client.force_login(self.collab)
+        response = self.client.post(
+            self.suggestions_url,
+            self.relationship_payload(
+                self.parent,
+                self.child,
+                RelationshipType.PARENT,
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # DB-2: one member cannot fill both sides of a relationship.
+    def test_self_relationship_suggestion_is_rejected(self):
+        self.client.force_login(self.collab)
+        response = self.client.post(
+            self.suggestions_url,
+            self.relationship_payload(self.child, self.child),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # DB-4, SA-1: only Collaborators submit; only the Owner approves.
+    def test_suggestion_permissions_are_enforced(self):
+        payload = self.relationship_payload(self.child, self.sibling)
+
+        self.client.force_login(self.owner)
+        owner_submit = self.client.post(self.suggestions_url, payload, format="json")
+        self.assertEqual(owner_submit.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_login(self.outsider)
+        outsider_submit = self.client.post(self.suggestions_url, payload, format="json")
+        self.assertEqual(outsider_submit.status_code, status.HTTP_404_NOT_FOUND)
+
+        self.client.force_login(self.collab)
+        submitted = self.client.post(self.suggestions_url, payload, format="json")
+        self.assertEqual(submitted.status_code, status.HTTP_201_CREATED, submitted.data)
+        approve_url = reverse("suggestion-approve", args=[self.tree.pk, submitted.data["id"]])
+        collaborator_approve = self.client.post(approve_url, {}, format="json")
+        self.assertEqual(collaborator_approve.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(
+            Relationship.objects.filter(
+                member1=self.child,
+                member2=self.sibling,
+                relationship_type=RelationshipType.SIBLING,
+            ).exists()
+        )

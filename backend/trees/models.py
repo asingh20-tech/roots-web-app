@@ -425,6 +425,7 @@ class ChangeType(models.TextChoices):
     ADD_MEMBER = "ADD_MEMBER", "Add member"
     UPDATE_MEMBER = "UPDATE_MEMBER", "Update member"
     ADD_MEDIA = "ADD_MEDIA", "Add media"
+    ADD_RELATIONSHIP = "ADD_RELATIONSHIP", "Add relationship"
 
 
 class SuggestionStatus(models.TextChoices):
@@ -482,7 +483,7 @@ class SuggestRequest(models.Model):
                 condition=Q(status__in=SuggestionStatus.values), name="suggestion_status_valid"
             ),
             models.CheckConstraint(
-                condition=Q(change_type=ChangeType.ADD_MEMBER) | Q(target_member__isnull=False),
+                condition=Q(change_type__in=[ChangeType.ADD_MEMBER, ChangeType.ADD_RELATIONSHIP]) | Q(target_member__isnull=False),
                 name="suggestion_target_required",
             ),
         ]
@@ -498,7 +499,7 @@ class SuggestRequest(models.Model):
     def clean(self):
         if self.target_member_id and self.target_member.tree_id != self.tree_id:  # DB-2
             raise ValidationError("Target member belongs to a different tree.")
-        if self.change_type != ChangeType.ADD_MEMBER and not self.target_member_id:
+        if self.change_type not in [ChangeType.ADD_MEMBER, ChangeType.ADD_RELATIONSHIP] and not self.target_member_id:
             raise ValidationError({"target_member": "This change type needs a target member."})
         if self.change_type == ChangeType.ADD_MEDIA and not self.proposed_file:
             raise ValidationError({"proposed_file": "ADD_MEDIA needs a file."})

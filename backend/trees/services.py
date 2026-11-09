@@ -1,14 +1,21 @@
 """Approve / reject suggestions (FR-13, FR-14, FR-21, FR-22, SA-3).
 
-Each call runs in one transaction and locks the suggestion and its target
-member, so two approvals at the same time are applied one after another.
+Each call runs in one transaction and locks the suggestion and the affected
+member rows, so two approvals at the same time are applied one after another.
 """
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from .models import ChangeType, Document, FamilyMember, SuggestionStatus, SuggestRequest
+from .models import (
+    ChangeType,
+    Document,
+    FamilyMember,
+    Relationship,
+    SuggestionStatus,
+    SuggestRequest,
+)
 
 EDITABLE_MEMBER_FIELDS = {"first_name", "last_name", "gender", "birth_date", "death_date"}
 REVIEWABLE = [SuggestionStatus.PENDING, SuggestionStatus.OUTDATED]
@@ -81,6 +88,39 @@ def approve_suggestion(suggestion_id, owner, confirm_outdated=False):
         member.save()
         s.target_member = member  # link the suggestion to the member it created
         extra.append("target_member")
+    elif s.change_type == ChangeType.ADD_RELATIONSHIP:
+        data = s.proposed_data or {}
+        allowed_fields = {"member1", "member2", "relationship_type", "start_date"}
+        unknown = set(data) - allowed_fields
+        if unknown:
+            raise ValidationError(f"Unknown relationship fields: {', '.join(sorted(unknown))}")
+
+        try:
+            member1_id = int(data["member1"])
+            member2_id = int(data["member2"])
+        except (KeyError, TypeError, ValueError):
+            raise ValidationError("A relationship suggestion needs two valid member IDs.")
+
+        member_ids = {member1_id, member2_id}
+        members = {
+            member.pk: member
+            for member in FamilyMember.objects.select_for_update().filter(
+                tree=s.tree,
+                pk__in=member_ids,
+            )
+        }
+        if len(member_ids) != 2 or set(members) != member_ids:
+            raise ValidationError("Both relationship members must be different members of this tree.")
+
+        relationship = Relationship(
+            tree=s.tree,
+            member1=members[member1_id],
+            member2=members[member2_id],
+            relationship_type=data.get("relationship_type"),
+            start_date=data.get("start_date"),
+        )
+        relationship.full_clean()
+        relationship.save()
     else:
         member = FamilyMember.objects.select_for_update().get(pk=s.target_member_id)
         if member.version != s.based_on_version and not confirm_outdated:
