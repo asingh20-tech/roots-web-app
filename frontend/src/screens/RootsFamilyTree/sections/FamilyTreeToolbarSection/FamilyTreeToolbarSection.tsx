@@ -1,11 +1,17 @@
 
 type FamilyTreeToolbarProps = {
   onRequestChange: () => void;
+  onAddMember?: () => void;
+  isOwner?: boolean;
 };
 
 const toolbarStats = ["0 people"];
 
-export const FamilyTreeToolbarSection = ({ onRequestChange }: FamilyTreeToolbarProps): JSX.Element => {
+export const FamilyTreeToolbarSection = ({
+  onRequestChange,
+  onAddMember,
+  isOwner = false,
+}: FamilyTreeToolbarProps): JSX.Element => {
   
   return (
     <section
@@ -48,6 +54,17 @@ export const FamilyTreeToolbarSection = ({ onRequestChange }: FamilyTreeToolbarP
           </div>
         </div>
         <div className="inline-flex items-start gap-2.5 relative flex-[0_0_auto]">
+          {isOwner && (
+           <button
+             type="button"
+             aria-label="Add family member"
+             onClick={onAddMember}
+             className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#355b43] px-4 text-[13px] text-white"
+             >
+               <span aria-hidden="true">+</span>
+               Add Member
+           </button>
+      )}
           <button
             type="button"
             className="inline-flex h-10 items-center gap-2 px-4 py-0 relative flex-[0_0_auto] bg-[#fffdf9] rounded-lg overflow-hidden border border-solid border-[#dedcd2]"
