@@ -11,6 +11,7 @@ import {
   type DemoMember, 
   type DemoRelationship, 
 } from "./FamilyTreeCanvas";
+import { OwnerAddMemberModal } from "./OwnerAddMemberModal";
 
 export const RootsFamilyTree = (): JSX.Element => {
   const [isRequestFormOpen, setIsRequestFormOpen] = useState(false);
@@ -51,7 +52,17 @@ export const RootsFamilyTree = (): JSX.Element => {
           />
         </div>
       )}
-      <FamilyTreeToolbarSection onRequestChange={() => setIsRequestFormOpen(true)} />
+      {isOwnerFormOpen && (
+        <OwnerAddMemberModal
+          onClose={() => setIsOwnerFormOpen(false)}
+          onSubmit={handleTreeSubmit}
+        />
+      )}
+      <FamilyTreeToolbarSection
+        onRequestChange={() => setIsRequestFormOpen(true)}
+        onAddMember={() => setIsOwnerFormOpen(true)}
+        isOwner={true}
+      />
 
       <FamilyTreeCanvas
         members={members}
