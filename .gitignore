@@ -22,3 +22,5 @@ build/
 *.sqlite3-journal
 db.sqlite3
 .env.vscode/
+
+backend/private_media/
