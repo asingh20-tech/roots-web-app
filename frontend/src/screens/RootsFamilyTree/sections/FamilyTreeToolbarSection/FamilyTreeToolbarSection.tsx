@@ -3,15 +3,18 @@ type FamilyTreeToolbarProps = {
   onRequestChange: () => void;
   onAddMember?: () => void;
   isOwner?: boolean;
+  memberCount: number;
 };
-
-const toolbarStats = ["0 people"];
 
 export const FamilyTreeToolbarSection = ({
   onRequestChange,
   onAddMember,
   isOwner = false,
+  memberCount,
 }: FamilyTreeToolbarProps): JSX.Element => {
+  const toolbarStats = [
+    `${memberCount} ${memberCount === 1 ? "person" : "people"}`,
+  ];
   
   return (
     <section
