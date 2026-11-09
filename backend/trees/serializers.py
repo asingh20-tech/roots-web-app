@@ -236,10 +236,55 @@ class SuggestionSerializer(serializers.ModelSerializer):
         kind = attrs["change_type"]
         target = attrs.get("target_member")
         data = attrs.get("proposed_data") or {}
+        #relationship validation logic
+
+        if kind == ChangeType.ADD_RELATIONSHIP:
+            if target:
+                raise serializers.ValidationError({
+                    "target_member": "ADD_RELATIONSHIP stores both members in proposed_data."
+                })
+            if attrs.get("proposed_file"):
+                raise serializers.ValidationError({
+                    "proposed_file": "Only ADD_MEDIA takes a file."
+                })
+            if not isinstance(data, dict) or not data:
+                raise serializers.ValidationError({
+                    "proposed_data": "Give the relationship fields to add."
+                })
+
+            relationship_ser = RelationshipSerializer(
+                data=data,
+                context={"tree": tree},
+            )
+            if not relationship_ser.is_valid():
+                raise serializers.ValidationError({
+                    "proposed_data": relationship_ser.errors
+                })
+
+            clean = relationship_ser.validated_data
+            preview = Relationship(**clean)
+            try:
+                preview.full_clean()
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({
+                    "proposed_data": _django_errors(exc)
+                })
+
+            attrs["proposed_data"] = {
+                "member1": clean["member1"].pk,
+                "member2": clean["member2"].pk,
+                "relationship_type": clean["relationship_type"],
+                "start_date": (
+                    clean["start_date"].isoformat()
+                    if clean.get("start_date")
+                    else None
+                ),
+            }
+            return attrs
 
         if target and target.tree_id != tree.pk:  # DB-2
             raise serializers.ValidationError({"target_member": "Member is not in this tree."})
-        if kind != ChangeType.ADD_MEMBER and not target:
+        if kind not in {ChangeType.ADD_MEMBER, ChangeType.ADD_RELATIONSHIP} and not target:
             raise serializers.ValidationError({"target_member": "This change type needs a target member."})
         if kind == ChangeType.ADD_MEMBER and target:
             raise serializers.ValidationError({"target_member": "ADD_MEMBER must not have a target."})
