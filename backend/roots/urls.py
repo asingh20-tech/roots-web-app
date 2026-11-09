@@ -1,4 +1,6 @@
 """URL routes for Roots. All frontend-backend traffic goes through /api/ (IR-7)."""
+import json
+
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.decorators import login_required
@@ -37,12 +39,15 @@ from trees.views import (
 def popup_complete(request):
     """Last page of the Google login popup: tells the React window login worked, then closes."""
     frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
+    # JSON-encode the origin (and escape "<") so it is a safe JS string literal.
+    # Plain concatenation avoids clashes between format braces and JS braces.
+    target_origin = json.dumps(frontend).replace("<", "\\u003c")
     return HttpResponse("""
     <script>
       if (window.opener) {
         window.opener.postMessage(
           { type: "GOOGLE_LOGIN_SUCCESS" },
-          "http://localhost:5173"
+          """ + target_origin + """
         );
       }
       window.close();
