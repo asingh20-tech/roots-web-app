@@ -22,6 +22,11 @@ build/
 *.sqlite3-journal
 db.sqlite3
 .env.vscode/
+.agents/skills/
+.claude/skills/
+agent/skills/
+
+skills-lock.json
 
 backend/private_media/
 
