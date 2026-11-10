@@ -1,1 +1,0 @@
-export { RootsAddPerson } from "./RootsAddPerson";
