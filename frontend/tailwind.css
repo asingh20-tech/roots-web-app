@@ -105,3 +105,130 @@
     transform: translateY(calc(-100% - var(--gap)));
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* ROOTS landing page + create tree dialog                            */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --roots-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@layer components {
+  .roots-btn {
+    @apply inline-flex select-none items-center justify-center rounded-md font-display tracking-[0.5px];
+    transition:
+      transform 160ms var(--roots-ease-out),
+      background-color 200ms ease,
+      border-color 200ms ease,
+      color 200ms ease,
+      box-shadow 200ms ease;
+  }
+  .roots-btn:focus-visible {
+    @apply outline-none ring-2 ring-roots-forest ring-offset-2 ring-offset-roots-canvas;
+  }
+  .roots-btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .roots-btn:disabled {
+    @apply cursor-not-allowed opacity-60;
+  }
+
+  .roots-btn-primary {
+    @apply bg-roots-forest text-roots-paper shadow-[0_1px_2px_rgba(46,59,44,0.18),0_6px_16px_-6px_rgba(46,59,44,0.45)];
+  }
+  .roots-btn-primary:hover:not(:disabled) {
+    @apply bg-roots-forest-deep;
+  }
+
+  .roots-btn-secondary {
+    @apply border border-roots-forest/35 bg-transparent text-roots-forest-deep;
+  }
+  .roots-btn-secondary:hover:not(:disabled) {
+    @apply border-roots-forest/60 bg-roots-surface;
+  }
+
+  .roots-label {
+    @apply font-body text-[11px] font-semibold uppercase tracking-[2px] text-roots-muted;
+  }
+
+  .roots-field {
+    @apply w-full rounded border border-roots-line bg-roots-paper px-3.5 font-body text-[16px] text-roots-ink placeholder:text-roots-faint;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+  .roots-field:hover {
+    @apply border-[#b0a48e];
+  }
+  .roots-field:focus {
+    @apply border-roots-forest shadow-[0_0_0_3px_rgba(74,94,71,0.16)];
+  }
+  .roots-field[aria-invalid="true"] {
+    @apply border-roots-error shadow-[0_0_0_3px_rgba(155,74,50,0.12)];
+  }
+}
+
+/* Landing entrance: plays once on load, short stagger. */
+.roots-enter {
+  opacity: 0;
+  animation: roots-enter 560ms var(--roots-ease-out) both;
+}
+
+@keyframes roots-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Dialog: CSS transitions (interruptible), exit faster than enter.
+   Closed-state duration must match EXIT_DURATION_MS in
+   CreateTreeModalSection.tsx. */
+.roots-dialog-backdrop {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.roots-dialog-backdrop[data-state="open"] {
+  opacity: 1;
+}
+.roots-dialog-panel {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+  transition:
+    opacity 200ms var(--roots-ease-out),
+    transform 240ms var(--roots-ease-out);
+}
+.roots-dialog-backdrop[data-state="open"] .roots-dialog-panel {
+  opacity: 1;
+  transform: none;
+}
+.roots-dialog-backdrop[data-state="closed"],
+.roots-dialog-backdrop[data-state="closed"] .roots-dialog-panel {
+  transition-duration: 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roots-enter {
+    animation-name: roots-fade;
+  }
+  .roots-dialog-panel {
+    transform: none;
+  }
+  .roots-btn:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+@keyframes roots-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

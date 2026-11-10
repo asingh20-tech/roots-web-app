@@ -3,38 +3,36 @@ import { Link } from "react-router-dom";
 export const HeaderSection = (): JSX.Element => {
   return (
     <header
-      className="flex h-[220px] w-full shrink-0 items-center border-b-2 border-[#c8bfa8] bg-[#ede8dc] pl-0 pr-12 py-0"
+      className="flex h-[112px] w-full shrink-0 items-center border-b-2 border-roots-line bg-roots-surface pr-4 sm:h-[168px] sm:pr-8 lg:h-[220px] lg:pr-12"
       aria-label="Roots site header"
     >
-      <div className="relative h-[220px] w-[258px] bg-[#e8e2d4]">
+      <div className="relative h-full w-[96px] shrink-0 bg-[#e8e2d4] sm:w-[196px] lg:w-[258px]">
         <img
-          className="absolute top-0 left-0 h-[220px] w-[258px] object-cover"
+          className="absolute inset-0 h-full w-full object-cover"
           src="/img/roots-tree-emblem-1.png"
           alt="Roots tree emblem"
         />
       </div>
-      <div className="relative flex h-[220px] flex-1 grow flex-col items-center justify-center gap-1.5">
-        <h1 className="relative w-fit [font-family:'Lora',Helvetica] text-[64px] font-normal leading-[normal] tracking-[8.00px] text-[#2e3b2c]">
+      <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1.5 px-3 text-center">
+        <h1 className="font-display text-[34px] font-normal leading-none tracking-[4px] text-roots-ink sm:text-[48px] sm:tracking-[6px] lg:text-[64px] lg:tracking-[8px]">
           ROOTS
         </h1>
-        <p className="relative w-fit [font-family:'Inter',Helvetica] text-[13px] font-normal leading-[normal] tracking-[3.00px] text-[#7a6e5c]">
+        <p className="mt-1 text-[9px] font-normal leading-snug tracking-[2px] text-roots-muted sm:text-[11px] sm:tracking-[2.5px] lg:mt-2 lg:text-[13px] lg:tracking-[3px]">
           YOUR FAMILY STORY BEGINS HERE
         </p>
       </div>
       <Link
-        className="relative inline-flex flex-[0_0_auto] items-center gap-3 rounded-md border border-solid border-[#b0a48e] bg-white px-[18px] py-2.5"
+        className="roots-btn h-11 shrink-0 gap-3 rounded-md border border-[#b0a48e] bg-white px-3.5 text-[15px] font-medium tracking-[1px] text-[#3d4f3b] hover:border-roots-forest/60 hover:bg-roots-paper sm:px-[18px]"
         to="/sign-in"
         aria-label="Sign in or sign up"
       >
         <img
-          className="relative h-7 w-7"
+          className="hidden h-7 w-7 sm:block"
           src="/img/rectangle-1.png"
           alt=""
           aria-hidden="true"
         />
-        <span className="relative w-fit whitespace-nowrap [font-family:'Inter',Helvetica] text-[15px] font-medium leading-[normal] tracking-[1.00px] text-[#3d4f3b]">
-          Sign In
-        </span>
+        <span className="whitespace-nowrap font-body">Sign In</span>
       </Link>
     </header>
   );
