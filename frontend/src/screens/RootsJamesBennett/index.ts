@@ -1,1 +1,0 @@
-export { RootsJamesBennett } from "./RootsJamesBennett";

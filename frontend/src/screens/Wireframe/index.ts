@@ -1,1 +1,0 @@
-export { Wireframe } from "./Wireframe";

@@ -1,5 +1,7 @@
-// Family tree API (backend: trees/views.py → FamilyTreeListCreateView).
-// Requests go through Vite's /api proxy and use the Django session cookie.
+// Family tree API (backend: trees/views.py, trees/serializers.py).
+import { apiRequest } from "./api";
+
+export { ApiError } from "./api";
 
 export type FamilyTree = {
   id: number;
@@ -9,85 +11,131 @@ export type FamilyTree = {
   is_owner: boolean;
 };
 
+export type Gender = "FEMALE" | "MALE" | "OTHER" | "UNKNOWN";
+
+export type FamilyMember = {
+  id: number;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  gender: Gender;
+  birth_date: string | null;
+  death_date: string | null;
+  photo_url: string | null;
+  version: number;
+  updated_at: string;
+};
+
+export type MemberDocument = {
+  id: number;
+  name: string;
+  url: string;
+  file_type: string;
+  file_size: number;
+  uploaded_at: string;
+};
+
+export type FamilyMemberDetail = FamilyMember & { documents: MemberDocument[] };
+
+// CHILD is accepted on input only; the backend stores it as a reversed PARENT.
+export type StoredRelationshipType =
+  | "PARENT"
+  | "ADOPTIVE_PARENT"
+  | "SPOUSE"
+  | "SIBLING";
+export type RelationshipType = StoredRelationshipType | "CHILD";
+
+// PARENT / ADOPTIVE_PARENT: member1 is the parent of member2.
+export type Relationship = {
+  id: number;
+  member1: number;
+  member2: number;
+  relationship_type: StoredRelationshipType;
+  start_date: string | null;
+  created_at: string;
+};
+
 export type CreateTreeInput = {
   name: string;
   description?: string;
 };
 
-export class ApiError extends Error {
-  readonly status: number;
-  readonly fieldErrors: Record<string, string[]>;
+export const listTrees = (signal?: AbortSignal): Promise<FamilyTree[]> =>
+  apiRequest<FamilyTree[]>("/api/trees/", { signal });
 
-  constructor(
-    status: number,
-    message: string,
-    fieldErrors: Record<string, string[]> = {},
-  ) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.fieldErrors = fieldErrors;
-  }
-}
-
-const readCookie = (name: string): string | null => {
-  const match = document.cookie
-    .split("; ")
-    .find((entry) => entry.startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
-};
-
-// Django needs the csrftoken cookie echoed back as X-CSRFToken on writes.
-// GET /api/csrf/ sets the cookie if this browser doesn't have one yet.
-const getCsrfToken = async (): Promise<string> => {
-  const existing = readCookie("csrftoken");
-  if (existing) return existing;
-  await fetch("/api/csrf/", { credentials: "include" });
-  return readCookie("csrftoken") ?? "";
-};
-
-const toApiError = async (response: Response): Promise<ApiError> => {
-  let body: unknown = null;
-  try {
-    body = await response.json();
-  } catch {
-    // Non-JSON error page; fall through with the status alone.
-  }
-
-  const fieldErrors: Record<string, string[]> = {};
-  let detail = response.statusText || "Request failed";
-
-  if (body && typeof body === "object") {
-    for (const [key, value] of Object.entries(body)) {
-      if (key === "detail" && typeof value === "string") {
-        detail = value;
-      } else if (Array.isArray(value)) {
-        fieldErrors[key] = value.map(String);
-      }
-    }
-  }
-
-  return new ApiError(response.status, detail, fieldErrors);
-};
-
-export const createTree = async ({
+export const createTree = ({
   name,
   description,
-}: CreateTreeInput): Promise<FamilyTree> => {
-  const csrfToken = await getCsrfToken();
-  const payload: CreateTreeInput = { name };
-  if (description) payload.description = description;
-
-  const response = await fetch("/api/trees/", {
+}: CreateTreeInput): Promise<FamilyTree> =>
+  apiRequest<FamilyTree>("/api/trees/", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRFToken": csrfToken,
-    },
-    body: JSON.stringify(payload),
+    body: description ? { name, description } : { name },
   });
 
-  if (!response.ok) throw await toApiError(response);
-  return (await response.json()) as FamilyTree;
+export const listMembers = (
+  treeId: number,
+  signal?: AbortSignal,
+): Promise<FamilyMember[]> =>
+  apiRequest<FamilyMember[]>(`/api/trees/${treeId}/members/`, { signal });
+
+export const getMember = (
+  treeId: number,
+  memberId: number,
+  signal?: AbortSignal,
+): Promise<FamilyMemberDetail> =>
+  apiRequest<FamilyMemberDetail>(
+    `/api/trees/${treeId}/members/${memberId}/`,
+    { signal },
+  );
+
+export const listRelationships = (
+  treeId: number,
+  signal?: AbortSignal,
+): Promise<Relationship[]> =>
+  apiRequest<Relationship[]>(`/api/trees/${treeId}/relationships/`, { signal });
+
+// ----- Change requests (SuggestRequest; Collaborators only, FR-12) -----
+
+export type AddMemberProposal = {
+  first_name: string;
+  last_name: string;
+  gender: Gender;
+  birth_date?: string;
+  death_date?: string;
 };
+
+export type AddRelationshipProposal = {
+  member1: number;
+  member2: number;
+  relationship_type: RelationshipType;
+  start_date?: string;
+};
+
+export type ChangeRequestInput =
+  | {
+      change_type: "ADD_MEMBER";
+      description: string;
+      proposed_data: AddMemberProposal;
+    }
+  | {
+      change_type: "ADD_RELATIONSHIP";
+      description: string;
+      proposed_data: AddRelationshipProposal;
+    };
+
+export type ChangeRequest = {
+  id: number;
+  change_type: string;
+  description: string;
+  status: string;
+  created_at: string;
+};
+
+export const submitChangeRequest = (
+  treeId: number,
+  input: ChangeRequestInput,
+): Promise<ChangeRequest> =>
+  apiRequest<ChangeRequest>(`/api/trees/${treeId}/suggestions/`, {
+    method: "POST",
+    body: input,
+  });
