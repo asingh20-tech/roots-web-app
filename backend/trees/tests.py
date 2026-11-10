@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -784,3 +784,25 @@ class RelationshipSuggestionRequirementTests(APITestCase):
                 relationship_type=RelationshipType.SIBLING,
             ).exists()
         )
+
+
+class GoogleLoginPopupTests(TestCase):
+    """FR-1: the OAuth popup posts its result to the configured frontend origin."""
+
+    def setUp(self):
+        self.url = reverse("popup-complete")
+
+    @override_settings(FRONTEND_URL="https://roots.example.com")
+    def test_popup_targets_configured_frontend_origin(self):
+        self.client.force_login(User.objects.create_user("popup", email="popup@example.com"))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn('"https://roots.example.com"', body)
+        self.assertNotIn("localhost:5173", body)
+        self.assertIn("GOOGLE_LOGIN_SUCCESS", body)
+
+    def test_anonymous_user_redirected_to_login(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("login", response["Location"])
