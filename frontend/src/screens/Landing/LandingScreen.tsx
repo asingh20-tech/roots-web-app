@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AuthRedirectState, useAuth } from "../../auth/AuthProvider";
+import { CreateTreeModal } from "../../components/CreateTreeModal/CreateTreeModal";
 import { FamilyTree } from "../../services/trees";
-import { CreateTreeModalSection } from "./sections/CreateTreeModalSection/CreateTreeModalSection";
 import { LandingHeaderSection } from "./sections/LandingHeaderSection/LandingHeaderSection";
 import { LandingHeroSection } from "./sections/LandingHeroSection/LandingHeroSection";
 
@@ -41,7 +41,7 @@ export const LandingScreen = (): JSX.Element => {
 
   const handleTreeCreated = (tree: FamilyTree) => {
     setIsCreateTreeOpen(false);
-    navigate(`/family-tree?tree=${tree.id}`);
+    navigate(`/family-tree/${tree.id}`);
   };
 
   return (
@@ -51,7 +51,7 @@ export const LandingScreen = (): JSX.Element => {
         onCreateTree={handleCreateTree}
         createButtonRef={createButtonRef}
       />
-      <CreateTreeModalSection
+      <CreateTreeModal
         open={isCreateTreeOpen}
         onClose={() => setIsCreateTreeOpen(false)}
         onCreated={handleTreeCreated}

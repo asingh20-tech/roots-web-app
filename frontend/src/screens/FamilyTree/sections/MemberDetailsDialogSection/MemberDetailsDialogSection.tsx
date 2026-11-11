@@ -18,7 +18,16 @@ type MemberDetailsDialogSectionProps = {
   members: FamilyMember[];
   relationships: Relationship[];
   onClose: () => void;
+  // Owner-only actions; omitted for Collaborators.
+  ownerActions?: {
+    onEdit: (member: FamilyMember) => void;
+    onDelete: (member: FamilyMember) => void;
+    onAddRelationship: (member: FamilyMember) => void;
+    onDeleteRelationship: (relationship: Relationship, description: string) => void;
+  };
 };
+
+type Connection = { relationship: Relationship; text: string };
 
 const genderLabels: Record<Gender, string> = {
   FEMALE: "Female",
@@ -46,10 +55,12 @@ const familyConnections = (
   memberId: number,
   members: FamilyMember[],
   relationships: Relationship[],
-): string[] => {
+): Connection[] => {
   const nameOf = (id: number) =>
     members.find((candidate) => candidate.id === id)?.full_name;
-  const lines: string[] = [];
+  const lines: Connection[] = [];
+  const add = (relationship: Relationship, text: string) =>
+    lines.push({ relationship, text });
   for (const rel of relationships) {
     const isFirst = rel.member1 === memberId;
     const isSecond = rel.member2 === memberId;
@@ -58,20 +69,19 @@ const familyConnections = (
     if (!otherName) continue;
     switch (rel.relationship_type) {
       case "PARENT":
-        lines.push(isFirst ? `Child: ${otherName}` : `Parent: ${otherName}`);
+        add(rel, isFirst ? `Child: ${otherName}` : `Parent: ${otherName}`);
         break;
       case "ADOPTIVE_PARENT":
-        lines.push(
-          isFirst
-            ? `Adopted child: ${otherName}`
-            : `Adoptive parent: ${otherName}`,
+        add(
+          rel,
+          isFirst ? `Adopted child: ${otherName}` : `Adoptive parent: ${otherName}`,
         );
         break;
       case "SPOUSE":
-        lines.push(`Spouse: ${otherName}`);
+        add(rel, `Spouse: ${otherName}`);
         break;
       case "SIBLING":
-        lines.push(`Sibling: ${otherName}`);
+        add(rel, `Sibling: ${otherName}`);
         break;
     }
   }
@@ -85,6 +95,7 @@ export const MemberDetailsDialogSection = ({
   members,
   relationships,
   onClose,
+  ownerActions,
 }: MemberDetailsDialogSectionProps): JSX.Element => {
   const [detail, setDetail] = useState<FamilyMemberDetail | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -100,7 +111,7 @@ export const MemberDetailsDialogSection = ({
         if ((error as Error).name !== "AbortError") setLoadError(true);
       });
     return () => controller.abort();
-  }, [treeId, member.id]);
+  }, [treeId, member.id, member.version]);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -190,21 +201,57 @@ export const MemberDetailsDialogSection = ({
               </dl>
             </section>
 
+            {ownerActions && (
+              <div className="flex flex-wrap gap-2.5 [font-family:'Inter',Helvetica]">
+                <button
+                  type="button"
+                  onClick={() => ownerActions.onEdit(shown)}
+                  className="inline-flex h-10 items-center rounded-lg bg-[#355b43] px-4 text-[13px] font-semibold text-white hover:bg-[#2b4a37]"
+                >
+                  Edit details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => ownerActions.onAddRelationship(shown)}
+                  className="inline-flex h-10 items-center rounded-lg border border-[#dedcd2] bg-white px-4 text-[13px] font-semibold text-[#283b30] hover:bg-[#f6f4ee]"
+                >
+                  Add relationship
+                </button>
+                <button
+                  type="button"
+                  onClick={() => ownerActions.onDelete(shown)}
+                  className="inline-flex h-10 items-center rounded-lg border border-[#e8d4cb] bg-white px-4 text-[13px] font-semibold text-[#8a3f2c] hover:bg-[#fbf3ef]"
+                >
+                  Delete person
+                </button>
+              </div>
+            )}
+
             <section className="flex flex-col gap-4 rounded-2xl border border-solid border-[#dedcd2] bg-[#f6f4ee] p-5">
               <h2 className="[font-family:'Inter',Helvetica] font-semibold text-[#283b30] text-lg">
                 Family information
               </h2>
               {connections.length ? (
                 <ul className="flex flex-col gap-3">
-                  {connections.map((line) => (
-                    <li key={line} className="flex items-center gap-2.5">
+                  {connections.map(({ relationship, text }) => (
+                    <li key={relationship.id} className="flex items-center gap-2.5">
                       <span
                         aria-hidden="true"
                         className="w-1.5 h-1.5 shrink-0 bg-[#617b58] rounded-[3px]"
                       />
-                      <span className="[font-family:'Inter',Helvetica] text-[#283b30] text-[13px]">
-                        {line}
+                      <span className="flex-1 [font-family:'Inter',Helvetica] text-[#283b30] text-[13px]">
+                        {text}
                       </span>
+                      {ownerActions && (
+                        <button
+                          type="button"
+                          onClick={() => ownerActions.onDeleteRelationship(relationship, text)}
+                          aria-label={`Remove relationship: ${text}`}
+                          className="rounded-md px-2 py-1 [font-family:'Inter',Helvetica] text-[12px] font-semibold text-[#8a3f2c] hover:bg-[#f7ece6]"
+                        >
+                          Remove
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>

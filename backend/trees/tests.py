@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APITransactionTestCase
 
 from .models import (
     ChangeType,
@@ -784,6 +784,192 @@ class RelationshipSuggestionRequirementTests(APITestCase):
                 relationship_type=RelationshipType.SIBLING,
             ).exists()
         )
+
+
+class MyTreesAndMemberManagementTests(APITestCase):
+    """My Trees dashboard data (member_count, role) and the Owner-vs-Collaborator
+    rules the tree workspace relies on: FR-3, FR-4, FR-12, FR-14, DB-4, SA-1."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user("mt-owner", email="mt-owner@example.com")
+        self.collab = User.objects.create_user("mt-collab", email="mt-collab@example.com")
+        self.collab2 = User.objects.create_user("mt-collab2", email="mt-collab2@example.com")
+        self.outsider = User.objects.create_user("mt-out", email="mt-out@example.com")
+        self.tree = FamilyTree.objects.create(name="Aditya Family", owner=self.owner)
+        self.empty_tree = FamilyTree.objects.create(name="Empty", owner=self.owner)
+        self.foreign_tree = FamilyTree.objects.create(name="Foreign", owner=self.outsider)
+        invite, _ = Invitation.create_for(self.tree, self.owner)
+        # Two collaborators: the join in accessible_to() must not double the count.
+        TreeCollaborator.objects.create(tree=self.tree, user=self.collab, invitation=invite)
+        TreeCollaborator.objects.create(tree=self.tree, user=self.collab2, invitation=invite)
+        self.ada = FamilyMember.objects.create(tree=self.tree, first_name="Ada", last_name="Lane")
+        self.ben = FamilyMember.objects.create(tree=self.tree, first_name="Ben", last_name="Lane")
+        FamilyMember.objects.create(tree=self.foreign_tree, first_name="Zed", last_name="Q")
+        self.members_url = reverse("family-member-list", args=[self.tree.pk])
+        self.rels_url = reverse("relationship-list", args=[self.tree.pk])
+        self.suggestions_url = reverse("suggestion-list", args=[self.tree.pk])
+
+    def trees_by_name(self):
+        response = self.client.get(reverse("family-tree-list-create"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {tree["name"]: tree for tree in response.data}
+
+    def test_owner_list_reports_role_and_saved_member_count(self):
+        self.client.force_login(self.owner)
+        trees = self.trees_by_name()
+        self.assertEqual(set(trees), {"Aditya Family", "Empty"})
+        self.assertEqual(trees["Aditya Family"]["member_count"], 2)
+        self.assertTrue(trees["Aditya Family"]["is_owner"])
+        self.assertEqual(trees["Empty"]["member_count"], 0)
+
+    def test_collaborator_list_counts_are_not_inflated_by_other_collaborators(self):
+        self.client.force_login(self.collab)
+        trees = self.trees_by_name()
+        self.assertEqual(set(trees), {"Aditya Family"})
+        self.assertEqual(trees["Aditya Family"]["member_count"], 2)
+        self.assertFalse(trees["Aditya Family"]["is_owner"])
+
+    def test_detail_and_create_responses_include_member_count(self):
+        self.client.force_login(self.owner)
+        detail = self.client.get(reverse("family-tree-detail", args=[self.tree.pk]))
+        self.assertEqual(detail.data["member_count"], 2)
+        created = self.client.post(reverse("family-tree-list-create"), {"name": "New"}, format="json")
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(created.data["member_count"], 0)
+
+    def test_pending_add_member_suggestion_is_not_counted_or_saved(self):
+        self.client.force_login(self.collab)
+        response = self.client.post(self.suggestions_url, {
+            "change_type": "ADD_MEMBER", "description": "Cousin",
+            "proposed_data": {"first_name": "Cy", "last_name": "Lane"},
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["status"], SuggestionStatus.PENDING)
+        self.assertEqual(self.tree.members.count(), 2)
+        self.assertEqual(self.trees_by_name()["Aditya Family"]["member_count"], 2)
+
+    def test_owner_approves_add_member_suggestion(self):
+        self.client.force_login(self.collab)
+        submitted = self.client.post(self.suggestions_url, {
+            "change_type": "ADD_MEMBER", "description": "Cousin",
+            "proposed_data": {"first_name": "Cy", "last_name": "Lane", "birth_date": "1990-01-01"},
+        }, format="json")
+        self.client.force_login(self.owner)
+        approved = self.client.post(
+            reverse("suggestion-approve", args=[self.tree.pk, submitted.data["id"]]), {}, format="json"
+        )
+        self.assertEqual(approved.status_code, status.HTTP_200_OK, approved.data)
+        self.assertEqual(approved.data["status"], SuggestionStatus.APPROVED)
+        cy = self.tree.members.get(first_name="Cy")
+        self.assertEqual(str(cy.birth_date), "1990-01-01")
+        self.assertEqual(self.trees_by_name()["Aditya Family"]["member_count"], 3)
+        # Already reviewed: a second approval must not create a duplicate.
+        again = self.client.post(
+            reverse("suggestion-approve", args=[self.tree.pk, submitted.data["id"]]), {}, format="json"
+        )
+        self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.tree.members.filter(first_name="Cy").count(), 1)
+
+    def test_owner_rejects_add_member_suggestion_without_changing_tree(self):
+        self.client.force_login(self.collab)
+        submitted = self.client.post(self.suggestions_url, {
+            "change_type": "ADD_MEMBER", "description": "Cousin",
+            "proposed_data": {"first_name": "Cy", "last_name": "Lane"},
+        }, format="json")
+        self.client.force_login(self.owner)
+        rejected = self.client.post(
+            reverse("suggestion-reject", args=[self.tree.pk, submitted.data["id"]]), {}, format="json"
+        )
+        self.assertEqual(rejected.data["status"], SuggestionStatus.REJECTED)
+        self.assertFalse(self.tree.members.filter(first_name="Cy").exists())
+
+    def test_owner_cannot_submit_suggestions_to_own_tree(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(self.suggestions_url, {
+            "change_type": "ADD_MEMBER", "description": "x",
+            "proposed_data": {"first_name": "Cy", "last_name": "Lane"},
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_collaborator_cannot_edit_delete_or_link_members_directly(self):
+        self.client.force_login(self.collab)
+        member_url = reverse("family-member-detail", args=[self.tree.pk, self.ada.pk])
+        self.assertEqual(self.client.patch(member_url, {"first_name": "X"}, format="json").status_code,
+                         status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.delete(member_url).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post(self.rels_url, {
+            "member1": self.ada.pk, "member2": self.ben.pk, "relationship_type": "SPOUSE",
+        }, format="json").status_code, status.HTTP_403_FORBIDDEN)
+        self.ada.refresh_from_db()
+        self.assertEqual(self.ada.first_name, "Ada")
+        self.assertEqual(self.tree.relationships.count(), 0)
+
+    def test_outsider_cannot_read_or_write_the_tree(self):
+        self.client.force_login(self.outsider)
+        self.assertEqual(self.client.get(reverse("family-tree-detail", args=[self.tree.pk])).status_code,
+                         status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.get(self.members_url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.post(self.members_url, {"first_name": "A", "last_name": "B"},
+                                          format="json").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotIn("Aditya Family", self.trees_by_name())
+
+    def test_deleting_a_member_removes_their_relationships(self):
+        self.client.force_login(self.owner)
+        self.client.post(self.rels_url, {
+            "member1": self.ada.pk, "member2": self.ben.pk, "relationship_type": "SPOUSE",
+        }, format="json")
+        self.assertEqual(self.tree.relationships.count(), 1)
+        response = self.client.delete(reverse("family-member-detail", args=[self.tree.pk, self.ada.pk]))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self.tree.relationships.count(), 0)
+        self.assertEqual(self.trees_by_name()["Aditya Family"]["member_count"], 1)
+
+
+class DeleteWithSuggestionHistoryTests(APITransactionTestCase):
+    """Deleting a member created by an approved suggestion (or a tree holding
+    one) used to fail in PostgreSQL: the IMMEDIATE composite FK
+    suggest_request_target_same_tree fired before Django removed the
+    suggestion. Transaction test case so the request really commits and the
+    deferred constraints are checked at COMMIT."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user("del-owner", email="del-owner@example.com")
+        self.collab = User.objects.create_user("del-collab", email="del-collab@example.com")
+        self.tree = FamilyTree.objects.create(name="Delete Tree", owner=self.owner)
+        invite, _ = Invitation.create_for(self.tree, self.owner)
+        TreeCollaborator.objects.create(tree=self.tree, user=self.collab, invitation=invite)
+        self.client.force_login(self.collab)
+        submitted = self.client.post(reverse("suggestion-list", args=[self.tree.pk]), {
+            "change_type": "ADD_MEMBER", "description": "x",
+            "proposed_data": {"first_name": "New", "last_name": "Person"},
+        }, format="json")
+        self.client.force_login(self.owner)
+        approved = self.client.post(
+            reverse("suggestion-approve", args=[self.tree.pk, submitted.data["id"]]), {}, format="json"
+        )
+        self.assertEqual(approved.status_code, status.HTTP_200_OK, approved.data)
+        self.member = self.tree.members.get(first_name="New")
+
+    def test_owner_deletes_member_created_by_an_approved_suggestion(self):
+        response = self.client.delete(reverse("family-member-detail", args=[self.tree.pk, self.member.pk]))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FamilyMember.objects.filter(pk=self.member.pk).exists())
+        self.assertFalse(SuggestRequest.objects.filter(target_member_id=self.member.pk).exists())
+
+    def test_owner_deletes_tree_with_suggestion_history(self):
+        response = self.client.delete(reverse("family-tree-detail", args=[self.tree.pk]))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FamilyTree.objects.filter(pk=self.tree.pk).exists())
+        self.assertFalse(SuggestRequest.objects.filter(tree_id=self.tree.pk).exists())
+
+    def test_cross_tree_link_is_still_rejected_immediately(self):
+        if connection.vendor != "postgresql":
+            self.skipTest("composite FKs are PostgreSQL-only")
+        other = FamilyTree.objects.create(name="Other", owner=self.owner)
+        stranger = FamilyMember.objects.create(tree=other, first_name="S", last_name="T")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Relationship.objects.create(tree=self.tree, member1=self.member, member2=stranger,
+                                        relationship_type=RelationshipType.SIBLING)
 
 
 class GoogleLoginPopupTests(TestCase):

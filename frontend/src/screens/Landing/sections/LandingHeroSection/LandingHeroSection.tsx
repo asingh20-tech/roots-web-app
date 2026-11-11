@@ -90,7 +90,7 @@ export const LandingHeroSection = ({
             Create Tree
           </button>
           <Link
-            to="/family-tree"
+            to="/my-trees"
             className="roots-btn roots-btn-secondary h-[52px] gap-2.5 px-8 text-[17px] sm:min-w-[200px]"
           >
             <EyeIcon />

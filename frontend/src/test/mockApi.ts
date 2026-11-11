@@ -38,4 +38,5 @@ export const tree = {
   description: null,
   created_at: "2026-11-10T00:00:00Z",
   is_owner: true,
+  member_count: 0,
 };

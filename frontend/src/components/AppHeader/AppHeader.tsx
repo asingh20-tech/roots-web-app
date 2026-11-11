@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../../../auth/AuthProvider";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../../auth/AuthProvider";
 
-export const AppHeaderSection = (): JSX.Element => {
+type AppHeaderProps = {
+  // Highlights "My Trees" on the dashboard and inside a tree.
+  current?: "my-trees";
+};
+
+const navLinkClass =
+  "inline-flex flex-col items-start justify-center relative self-stretch flex-[0_0_auto] border-b-[3px] [border-bottom-style:solid]";
+
+// App header for signed-in screens (My Trees, tree workspace, invitations).
+export const AppHeader = ({ current }: AppHeaderProps): JSX.Element => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
@@ -46,34 +55,43 @@ export const AppHeaderSection = (): JSX.Element => {
   }, []);
 
   return (
-    <header className="flex h-[76px] items-center gap-[60px] px-9 py-0 relative self-stretch w-full bg-white border-b [border-bottom-style:solid] border-[#dedcd2]">
-      <a
+    <header className="flex h-[76px] items-center gap-5 px-4 py-0 relative self-stretch w-full bg-white border-b [border-bottom-style:solid] border-[#dedcd2] sm:px-9 lg:gap-[60px]">
+      <Link
         className="inline-flex items-center gap-[9px] relative flex-[0_0_auto]"
-        href="/"
+        to="/"
         aria-label="Roots home"
       >
         <img
-          className="relative w-[57px] h-[46px]"
+          className="relative w-[46px] h-[37px] sm:w-[57px] sm:h-[46px]"
           alt="Tree logo"
           src="/img/tree-logo-2.png"
         />
-        <span className="relative w-fit [font-family:'Lora',Helvetica] font-normal text-[#355b43] text-[32px] tracking-[-0.32px] leading-[normal]">
+        <span className="relative hidden w-fit [font-family:'Lora',Helvetica] font-normal text-[#355b43] text-[32px] tracking-[-0.32px] leading-[normal] sm:inline">
           Roots
         </span>
-      </a>
+      </Link>
       <nav
-        className="flex items-center gap-8 relative flex-1 self-stretch grow"
+        className="flex items-center gap-6 relative flex-1 self-stretch grow sm:gap-8"
         aria-label="Primary navigation"
       >
-        <a
-          className="inline-flex flex-col items-start justify-center relative self-stretch flex-[0_0_auto] border-b-[3px] [border-bottom-style:solid] border-[#355b43]"
-          href="/family-tree"
-          aria-current="page"
-        >
-          <span className="relative w-fit [font-family:'Inter',Helvetica] font-semibold text-[#355b43] text-sm tracking-[0] leading-[normal]">
-            Family tree
+        <Link className={`${navLinkClass} border-transparent`} to="/">
+          <span className="relative w-fit [font-family:'Inter',Helvetica] font-semibold text-[#7b8177] text-sm leading-[normal] hover:text-[#355b43]">
+            Home
           </span>
-        </a>
+        </Link>
+        <Link
+          className={`${navLinkClass} ${current === "my-trees" ? "border-[#355b43]" : "border-transparent"}`}
+          to="/my-trees"
+          aria-current={current === "my-trees" ? "page" : undefined}
+        >
+          <span
+            className={`relative w-fit [font-family:'Inter',Helvetica] font-semibold text-sm leading-[normal] ${
+              current === "my-trees" ? "text-[#355b43]" : "text-[#7b8177] hover:text-[#355b43]"
+            }`}
+          >
+            My Trees
+          </span>
+        </Link>
       </nav>
       <div
         className="inline-flex items-center gap-[22px] relative flex-[0_0_auto]"
@@ -83,6 +101,7 @@ export const AppHeaderSection = (): JSX.Element => {
           <button
             className="inline-flex items-center gap-2.5 relative flex-[0_0_auto] cursor-pointer"
             type="button"
+            aria-label={`My Account${user?.email ? ` (${user.email})` : ""}`}
             aria-haspopup="menu"
             aria-expanded={isAccountMenuOpen}
             aria-controls="account-menu"
@@ -96,9 +115,8 @@ export const AppHeaderSection = (): JSX.Element => {
                 {initials}
               </span>
             </span>
-            <span className="relative w-fit [font-family:'Inter',Helvetica] font-normal text-[#283b30] text-[13px] tracking-[0] leading-[normal]">
+            <span className="relative hidden w-fit [font-family:'Inter',Helvetica] font-normal text-[#283b30] text-[13px] tracking-[0] leading-[normal] sm:inline">
               My Account
-              {user?.email && <span className="sr-only"> ({user.email})</span>}
             </span>
             <span className="relative w-3.5 h-3.5" aria-hidden="true">
               <img
