@@ -1,12 +1,23 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { TreeSettingsMenu } from "../../../../components/TreeSettings/TreeSettingsMenu";
 import { FamilyTree, listTrees } from "../../../../services/trees";
+import { onTreesChanged } from "../../../../services/treeEvents";
+import { MemberSearch } from "../MemberSearch/MemberSearch";
 
 type FamilyTreeToolbarProps = {
   treeId: number;
   treeName: string;
+  treeDescription?: string | null;
   memberCount: number;
   isOwner: boolean;
+  // FR-15: a search result was picked.
+  onSearchSelect: (memberId: number) => void;
+  // Owner (FR-23, proposed).
+  onEditTree: () => void;
+  onDeleteTree: () => void;
+  // Collaborator (FR-24, proposed).
+  onOpenContributions: () => void;
   // Owner actions.
   onAddMember: () => void;
   onAddRelationship: () => void;
@@ -18,9 +29,9 @@ type FamilyTreeToolbarProps = {
 };
 
 const outlineButtonClass =
-  "inline-flex h-10 items-center gap-2 px-4 py-0 relative flex-[0_0_auto] bg-[#fffdf9] rounded-lg overflow-hidden border border-solid border-[#dedcd2] [font-family:'Inter',Helvetica] text-[13px] text-[#283b30] transition-colors hover:bg-[#f6f4ee]";
+  "roots-press inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap px-3 sm:px-4 py-0 relative flex-[0_0_auto] bg-[#fffdf9] rounded-lg overflow-hidden border border-solid border-[#dedcd2] [font-family:'Inter',Helvetica] text-[13px] text-[#283b30] hover:bg-[#f6f4ee] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#355b43]";
 const solidButtonClass =
-  "h-10 px-4 py-0 bg-[#355b43] inline-flex items-center gap-2 relative flex-[0_0_auto] rounded-lg overflow-hidden border border-solid border-[#355b43] [font-family:'Inter',Helvetica] text-[13px] text-white transition-colors hover:bg-[#2b4a37]";
+  "roots-press h-10 whitespace-nowrap px-3 sm:px-4 py-0 bg-[#355b43] inline-flex items-center justify-center gap-2 relative flex-[0_0_auto] rounded-lg overflow-hidden border border-solid border-[#355b43] [font-family:'Inter',Helvetica] text-[13px] text-white hover:bg-[#2b4a37] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#355b43]";
 
 const PlusIcon = () => (
   <span className="relative w-4 h-4" aria-hidden="true">
@@ -44,6 +55,9 @@ const TreeSwitcher = ({ treeId }: { treeId: number }) => {
   const [trees, setTrees] = useState<FamilyTree[] | null>(null);
   const [error, setError] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // A rename or delete elsewhere makes the cached list stale (FR-23).
+  useEffect(() => onTreesChanged(() => setTrees(null)), []);
 
   useEffect(() => {
     if (!open || trees) return;
@@ -81,7 +95,7 @@ const TreeSwitcher = ({ treeId }: { treeId: number }) => {
         aria-haspopup="true"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="relative flex w-7 h-7 items-center justify-center rounded-md hover:bg-[#f0ede4]"
+        className="roots-press relative flex w-11 h-11 items-center justify-center rounded-lg hover:bg-[#f0ede4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#355b43]"
       >
         <span className="relative w-[17px] h-[17px]">
           <img
@@ -93,7 +107,7 @@ const TreeSwitcher = ({ treeId }: { treeId: number }) => {
         </span>
       </button>
       {open && (
-        <div className="absolute left-0 top-9 z-20 w-[280px] rounded-xl border border-[#dedcd2] bg-white py-2 shadow-[0px_12px_32px_#3444321f] [font-family:'Inter',Helvetica]">
+        <div className="roots-menu absolute left-0 top-12 z-20 w-[min(280px,calc(100vw-2rem))] rounded-xl [--roots-menu-origin:top_left] border border-[#dedcd2] bg-white py-2 shadow-[0px_12px_32px_#3444321f] [font-family:'Inter',Helvetica]">
           <p className="px-4 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.5px] text-[#7b8177]">
             Your family trees
           </p>
@@ -107,7 +121,7 @@ const TreeSwitcher = ({ treeId }: { treeId: number }) => {
                     to={`/family-tree/${tree.id}`}
                     onClick={() => setOpen(false)}
                     aria-current={tree.id === treeId ? "page" : undefined}
-                    className={`flex items-center justify-between gap-3 px-4 py-2.5 text-[13px] hover:bg-[#f5f6f2] ${
+                    className={`flex min-h-11 items-center justify-between gap-3 px-4 py-2.5 text-[13px] hover:bg-[#f5f6f2] ${
                       tree.id === treeId ? "font-semibold text-[#355b43]" : "text-[#283b30]"
                     }`}
                   >
@@ -138,8 +152,13 @@ const TreeSwitcher = ({ treeId }: { treeId: number }) => {
 export const FamilyTreeToolbarSection = ({
   treeId,
   treeName,
+  treeDescription,
   memberCount,
   isOwner,
+  onSearchSelect,
+  onEditTree,
+  onDeleteTree,
+  onOpenContributions,
   onAddMember,
   onAddRelationship,
   onReviewRequests,
@@ -171,6 +190,11 @@ export const FamilyTreeToolbarSection = ({
             </h1>
             <TreeSwitcher treeId={treeId} />
           </div>
+          {treeDescription && (
+            <p className="max-w-[640px] line-clamp-2 [font-family:'Inter',Helvetica] text-[13px] leading-[19px] text-[#5f655b]">
+              {treeDescription}
+            </p>
+          )}
           <div className="inline-flex items-center gap-2.5 relative flex-[0_0_auto]">
             {toolbarStats.map((stat, index) => (
               <span key={stat} className="contents">
@@ -185,9 +209,19 @@ export const FamilyTreeToolbarSection = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        {/* Phones: a tidy two-column grid; wider screens: one wrapping row. */}
+        <div className="grid w-full grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
+          <div className="col-span-2 sm:col-auto">
+            <MemberSearch treeId={treeId} onSelect={onSearchSelect} />
+          </div>
           {isOwner ? (
             <>
+              <TreeSettingsMenu
+                treeName={treeName}
+                variant="button"
+                onEdit={onEditTree}
+                onDelete={onDeleteTree}
+              />
               <button type="button" className={outlineButtonClass} onClick={onInvite}>
                 <span className="relative w-4 h-4" aria-hidden="true">
                   <img
@@ -226,21 +260,31 @@ export const FamilyTreeToolbarSection = ({
                 </ToolbarIcon>
                 Add Relationship
               </button>
-              <button type="button" className={solidButtonClass} onClick={onAddMember}>
+              <button type="button" className={`${solidButtonClass} col-span-2 sm:col-auto`} onClick={onAddMember}>
                 <PlusIcon />
                 Add Member
               </button>
             </>
           ) : (
-            <button
-              className={solidButtonClass}
-              type="button"
-              aria-label="Request a change"
-              onClick={onRequestChange}
-            >
-              <PlusIcon />
-              Request Change
-            </button>
+            <>
+              <button type="button" className={outlineButtonClass} onClick={onOpenContributions}>
+                <ToolbarIcon>
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M19 8v6M22 11h-6" />
+                </ToolbarIcon>
+                My Contributions
+              </button>
+              <button
+                className={solidButtonClass}
+                type="button"
+                aria-label="Request a change"
+                onClick={onRequestChange}
+              >
+                <PlusIcon />
+                Request Change
+              </button>
+            </>
           )}
         </div>
       </div>

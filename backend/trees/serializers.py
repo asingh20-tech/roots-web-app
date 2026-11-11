@@ -1,3 +1,5 @@
+import os
+
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.urls import reverse
@@ -14,7 +16,7 @@ from .models import (
     SuggestRequest,
     TreeCollaborator,
 )
-from .services import EDITABLE_MEMBER_FIELDS, compare
+from .services import EDITABLE_MEMBER_FIELDS, compare, member_snapshot
 
 
 def _django_errors(exc):
@@ -73,12 +75,21 @@ class FamilyMemberSerializer(ModelCleanMixin, serializers.ModelSerializer):
     protected view, never the raw storage path (DB-7)."""
     full_name = serializers.SerializerMethodField()
     photo_url = serializers.SerializerMethodField()
+    # FR-25 (proposed): read-only provenance. Set by approve_suggestion() only.
+    contributed_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    contributed_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = FamilyMember
         fields = ["id", "first_name", "last_name", "full_name", "gender",
-                  "birth_date", "death_date", "photo_url", "version", "updated_at"]
-        read_only_fields = ["id", "full_name", "photo_url", "version", "updated_at"]
+                  "birth_date", "death_date", "photo_url", "version", "updated_at",
+                  "contributed_by", "contributed_by_name"]
+        read_only_fields = ["id", "full_name", "photo_url", "version", "updated_at",
+                            "contributed_by", "contributed_by_name"]
+
+    def get_contributed_by_name(self, obj):
+        user = obj.contributed_by
+        return (user.get_full_name() or user.email) if user else None
 
     def get_full_name(self, obj):
         return f"{obj.first_name} {obj.last_name}"
@@ -199,25 +210,47 @@ class SuggestionSerializer(serializers.ModelSerializer):
     Data is validated now, so a bad suggestion fails at submit, not at approval.
     """
     submitted_by_name = serializers.SerializerMethodField()
+    is_mine = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
     target_member_name = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
+    file_name = serializers.SerializerMethodField()
     is_outdated = serializers.SerializerMethodField()
     comparison = serializers.SerializerMethodField()
 
     class Meta:
         model = SuggestRequest
         fields = ["id", "change_type", "description", "target_member", "target_member_name",
-                  "proposed_data", "proposed_file", "file_url", "status", "is_outdated",
-                  "comparison", "based_on_version", "submitted_by_name", "created_at",
-                  "reviewed_at"]
-        read_only_fields = ["id", "target_member_name", "file_url", "status", "is_outdated",
-                            "comparison", "based_on_version", "submitted_by_name",
-                            "created_at", "reviewed_at"]
-        extra_kwargs = {"proposed_file": {"write_only": True}}
+                  "proposed_data", "proposed_file", "file_url", "file_name", "status",
+                  "is_outdated", "comparison", "original_data", "based_on_version",
+                  "submitted_by", "submitted_by_name", "is_mine", "reviewed_by_name",
+                  "created_at", "reviewed_at", "edited_at", "withdrawn_at"]
+        # submitted_by / status / review fields come from the server only, so a
+        # client can't impersonate another author or fake a review (FR-24).
+        read_only_fields = ["id", "target_member_name", "file_url", "file_name", "status",
+                            "is_outdated", "comparison", "original_data", "submitted_by",
+                            "submitted_by_name", "is_mine", "reviewed_by_name", "created_at",
+                            "reviewed_at", "edited_at", "withdrawn_at"]
+        extra_kwargs = {
+            "proposed_file": {"write_only": True},
+            # UPDATE_MEMBER: the member version the form was filled from (FR-21).
+            "based_on_version": {"required": False, "allow_null": True},
+        }
 
     # ----- output -----
     def get_submitted_by_name(self, obj):
         return obj.submitted_by.get_full_name() or obj.submitted_by.email
+
+    def get_is_mine(self, obj):
+        request = self.context.get("request")
+        return bool(request and obj.submitted_by_id == request.user.pk)
+
+    def get_reviewed_by_name(self, obj):
+        user = obj.reviewed_by
+        return (user.get_full_name() or user.email) if user else None
+
+    def get_file_name(self, obj):
+        return os.path.basename(obj.proposed_file.name) if obj.proposed_file else None
 
     def get_target_member_name(self, obj):
         return str(obj.target_member) if obj.target_member_id else None
@@ -241,6 +274,8 @@ class SuggestionSerializer(serializers.ModelSerializer):
     # ----- input -----
     def validate(self, attrs):
         tree = self.context["tree"]
+        if self.instance is not None:
+            return self._validate_edit(attrs)
         kind = attrs["change_type"]
         target = attrs.get("target_member")
         data = attrs.get("proposed_data") or {}
@@ -301,7 +336,21 @@ class SuggestionSerializer(serializers.ModelSerializer):
             if not attrs.get("proposed_file"):
                 raise serializers.ValidationError({"proposed_file": "ADD_MEDIA needs a file."})
             attrs["proposed_data"] = None
+            attrs["based_on_version"] = None
             return attrs
+
+        if kind == ChangeType.UPDATE_MEMBER:
+            # FR-21: refuse an edit made from a stale form instead of storing a
+            # suggestion that is outdated from the start.
+            seen = attrs.get("based_on_version")
+            if seen is not None and seen != target.version:
+                raise serializers.ValidationError({
+                    "based_on_version": f"{target} was changed since you opened this form. "
+                                        "Reload to see the current details."
+                })
+            attrs["based_on_version"] = target.version
+        else:
+            attrs["based_on_version"] = None
 
         if attrs.get("proposed_file"):
             raise serializers.ValidationError({"proposed_file": "Only ADD_MEDIA takes a file."})
@@ -332,7 +381,60 @@ class SuggestionSerializer(serializers.ModelSerializer):
         attrs["proposed_data"] = {
             k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in clean.items()
         }
+        if kind == ChangeType.UPDATE_MEMBER:
+            unchanged = [k for k, v in attrs["proposed_data"].items()
+                         if member_snapshot(target, [k]).get(k) == v]
+            if len(unchanged) == len(attrs["proposed_data"]):
+                raise serializers.ValidationError({"proposed_data": "Change at least one detail."})
+            attrs["original_data"] = member_snapshot(target, attrs["proposed_data"].keys())
         return attrs
+
+    def _validate_edit(self, attrs):
+        """FR-24: the author edits their own PENDING suggestion. The type and
+        target are fixed; the new values are validated exactly like a new
+        submission of the same type."""
+        instance = self.instance
+        if "change_type" in attrs and attrs["change_type"] != instance.change_type:
+            raise serializers.ValidationError({"change_type": "The type of a suggestion can't be changed."})
+        if "target_member" in attrs and attrs["target_member"] != instance.target_member:
+            raise serializers.ValidationError({"target_member": "The person a suggestion is about can't be changed."})
+        if "proposed_data" not in attrs and "proposed_file" not in attrs:
+            return attrs  # only the notes changed
+        fresh = SuggestionSerializer(context=self.context)
+        merged = {
+            "change_type": instance.change_type,
+            "target_member": instance.target_member,
+            "description": attrs.get("description", instance.description),
+            "proposed_data": attrs.get("proposed_data", instance.proposed_data),
+            "based_on_version": attrs.get("based_on_version"),
+        }
+        if instance.change_type == ChangeType.ADD_MEDIA:
+            merged["proposed_file"] = attrs.get("proposed_file") or instance.proposed_file
+        validated = fresh.validate(merged)
+        validated.pop("change_type")
+        validated.pop("target_member")
+        if instance.change_type == ChangeType.ADD_MEDIA and "proposed_file" not in attrs:
+            validated.pop("proposed_file", None)
+        return validated
+
+    def update(self, instance, validated_data):
+        from django.utils import timezone
+
+        old_file = instance.proposed_file if "proposed_file" in validated_data else None
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.edited_at = timezone.now()
+        try:
+            instance.full_clean()
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(_django_errors(exc))
+        instance.save()
+        if old_file and old_file.name and old_file.name != instance.proposed_file.name:
+            from django.db import transaction
+
+            storage, name = old_file.storage, old_file.name
+            transaction.on_commit(lambda: storage.delete(name))
+        return instance
 
     def create(self, validated_data):
         instance = SuggestRequest(**validated_data)

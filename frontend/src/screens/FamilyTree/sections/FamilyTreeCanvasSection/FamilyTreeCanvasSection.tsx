@@ -25,6 +25,9 @@ type FamilyTreeCanvasSectionProps = {
   onSelectMember: (member: FamilyMember) => void;
   // Shown under the empty-state message (role-specific actions).
   emptyActions?: ReactNode;
+  // FR-15: a search pick. Each new `key` pans so the member's card is centred
+  // (zoomed in to at least 80% so it can be read) and rings it briefly.
+  focusRequest?: { memberId: number; key: number } | null;
 };
 
 type View = { x: number; y: number; scale: number };
@@ -37,6 +40,9 @@ const FIT_MARGIN = 48;
 // Movement (px) before a press on a card counts as a drag, not a click.
 const DRAG_THRESHOLD = 4;
 const HEART_ICON = "/img/relationship-heart-11.svg";
+// Member card size (memberCardClass: w-[156px] h-[132px]).
+const CARD_WIDTH = 156;
+const CARD_HEIGHT = 132;
 const LINE_COLOUR = "#a2ae9c";
 
 const clampScale = (scale: number) =>
@@ -62,6 +68,7 @@ export const FamilyTreeCanvasSection = ({
   selectedMemberId,
   onSelectMember,
   emptyActions,
+  focusRequest,
 }: FamilyTreeCanvasSectionProps): JSX.Element => {
   const sectionRef = useRef<HTMLElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -158,6 +165,32 @@ export const FamilyTreeCanvasSection = ({
     return () => el.removeEventListener("wheel", handleWheel);
   }, [isEmpty, zoomAround, panBy]);
 
+  // ----- Centre on a searched member -----
+  const [foundId, setFoundId] = useState<number | null>(null);
+  useEffect(() => {
+    if (!focusRequest) return;
+    const node = layout.nodes.find((candidate) => candidate.member.id === focusRequest.memberId);
+    if (!node) return;
+    // Keyboard and screen-reader users land on the found card (Enter opens it).
+    viewportRef.current
+      ?.querySelector<HTMLElement>(`[data-member-id="${focusRequest.memberId}"]`)
+      ?.focus({ preventScroll: true });
+    const { width, height } = viewportSize();
+    if (width && height) setView((current) => {
+      const scale = Math.max(current.scale, 0.8);
+      return {
+        scale,
+        x: width / 2 - (node.x + CARD_WIDTH / 2) * scale,
+        y: height / 2 - (node.y + CARD_HEIGHT / 2) * scale,
+      };
+    });
+    setFoundId(focusRequest.memberId);
+    const timer = window.setTimeout(() => setFoundId(null), 1700);
+    return () => window.clearTimeout(timer);
+    // Only a new request re-centres; later layout changes keep the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest?.key]);
+
   // ----- Drag to pan -----
   const drag = useRef<{
     pointerId: number;
@@ -170,8 +203,44 @@ export const FamilyTreeCanvasSection = ({
   const suppressClick = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
 
+  // FR-8: two fingers pinch-zoom (and pan with their midpoint) on touch.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{
+    startDist: number;
+    startScale: number;
+    // Canvas point under the fingers' starting midpoint.
+    anchorX: number;
+    anchorY: number;
+  } | null>(null);
+
+  const pinchGeometry = (el: HTMLElement) => {
+    const [a, b] = Array.from(pointers.current.values());
+    const rect = el.getBoundingClientRect();
+    return {
+      dist: Math.hypot(a.x - b.x, a.y - b.y),
+      midX: (a.x + b.x) / 2 - rect.left,
+      midY: (a.y + b.y) / 2 - rect.top,
+    };
+  };
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.current.size === 2) {
+      const { dist, midX, midY } = pinchGeometry(event.currentTarget);
+      const v = viewRef.current;
+      pinch.current = {
+        startDist: Math.max(dist, 1),
+        startScale: v.scale,
+        anchorX: (midX - v.x) / v.scale,
+        anchorY: (midY - v.y) / v.scale,
+      };
+      drag.current = null; // a pinch replaces the one-finger drag
+      suppressClick.current = true;
+      setIsDragging(false);
+      return;
+    }
+    if (pointers.current.size > 2) return;
     drag.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -183,6 +252,16 @@ export const FamilyTreeCanvasSection = ({
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pointers.current.has(event.pointerId)) {
+      pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+    if (pinch.current && pointers.current.size >= 2) {
+      const { dist, midX, midY } = pinchGeometry(event.currentTarget);
+      const p = pinch.current;
+      const scale = clampScale(p.startScale * (dist / p.startDist));
+      setView({ scale, x: midX - p.anchorX * scale, y: midY - p.anchorY * scale });
+      return;
+    }
     const current = drag.current;
     if (!current || current.pointerId !== event.pointerId) return;
     const dx = event.clientX - current.startX;
@@ -197,6 +276,16 @@ export const FamilyTreeCanvasSection = ({
   };
 
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    pointers.current.delete(event.pointerId);
+    if (pinch.current) {
+      if (pointers.current.size < 2) {
+        pinch.current = null;
+        window.setTimeout(() => {
+          suppressClick.current = false;
+        }, 0);
+      }
+      return;
+    }
     const current = drag.current;
     if (!current || current.pointerId !== event.pointerId) return;
     if (current.moved) {
@@ -341,7 +430,7 @@ export const FamilyTreeCanvasSection = ({
                     selected
                       ? "bg-[#f2f6ed] border-2 border-solid border-[#355b43]"
                       : ""
-                  }`}
+                  } ${foundId === member.id ? "roots-node-found" : ""}`}
                   style={{ top: y, left: x }}
                 >
                   {member.photo_url ? (

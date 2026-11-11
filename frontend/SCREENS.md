@@ -28,8 +28,14 @@ nav, account menu), `CreateTreeModal` (landing + My Trees), `Dialog` and
 | `RelationshipFormDialog` | Owner | `POST /relationships/` |
 | `ConfirmDialog` (delete person / relationship) | Owner | `DELETE /members/:id/`, `DELETE /relationships/:id/` |
 | `ReviewRequestsDialog` | Owner | `GET /suggestions/`, `POST /suggestions/:id/approve|reject/` |
-| `InviteDialog` | Owner | `POST /invitations/` |
+| `InviteDialog` | Owner | `POST /invitations/`; lists and revokes links (`GET /invitations/`, `DELETE /invitations/:id/`) |
 | `ChangeRequestModalSection` | Collaborator | `POST /suggestions/` (`ADD_MEMBER`, `ADD_RELATIONSHIP`) |
+| `MemberSearch` (toolbar) | everyone | `GET /api/search/?q=&tree=` (FR-15) |
+| `TreeSettingsMenu`, `EditTreeDialog`, `DeleteTreeDialog` (`src/components/TreeSettings/`; also on My Trees cards) | Owner | `PATCH`/`DELETE /api/trees/:id/` (FR-23, proposed) |
+| `MyContributionsDialog` | Collaborator | `GET /suggestions/?status=&page=`, `PATCH /suggestions/:id/`, `POST /suggestions/:id/withdraw/` (FR-24, proposed) |
+| `MemberProposalDialog` | Collaborator | `POST /suggestions/` (`UPDATE_MEMBER`); edits pending member suggestions |
+| `DocumentSuggestionDialog` | Collaborator | `POST /suggestions/` multipart (`ADD_MEDIA`) |
+| Person details: photo / documents | Owner | `PUT`/`DELETE /members/:id/photo/`, `POST`/`DELETE /members/:id/documents/` |
 
 Django enforces every role rule on its own (`trees/permissions.py`): writes to
 members/relationships/invitations are Owner-only (403 for Collaborators),
@@ -54,7 +60,8 @@ and users outside a tree get 404 for all of its endpoints.
    tree get a dotted bracket. Nothing depends on gender.
 
 Node identity and React keys are database ids. The canvas pans (drag, wheel,
-arrow keys), zooms (buttons, Ctrl/⌘ + wheel or pinch, +/-) and fits to screen
+arrow keys), zooms (buttons, Ctrl/⌘ + wheel or trackpad pinch, two-finger
+touch pinch, +/-) and fits to screen
 (button or 0). It fits once when a tree first has members; after edits it keeps
 the current view.
 

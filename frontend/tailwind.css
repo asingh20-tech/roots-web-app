@@ -117,7 +117,72 @@
   transition-duration: 150ms;
 }
 
+/* Workspace dialogs and menus. Enter with @starting-style (no JS mount
+   state). Menus scale from their trigger; dialogs stay centred. */
+.roots-modal-panel {
+  transition:
+    opacity 200ms var(--roots-ease-out),
+    transform 220ms var(--roots-ease-out);
+}
+@starting-style {
+  .roots-modal-panel {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+.roots-menu {
+  transform-origin: var(--roots-menu-origin, top right);
+  transition:
+    opacity 150ms var(--roots-ease-out),
+    transform 150ms var(--roots-ease-out);
+}
+@starting-style {
+  .roots-menu {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+/* Pressable controls give instant feedback. */
+.roots-press {
+  transition:
+    transform 140ms var(--roots-ease-out),
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+.roots-press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+/* A search hit is briefly ringed on the canvas so the eye finds it. */
+.roots-node-found {
+  animation: roots-found 1.6s var(--roots-ease-out) 1;
+}
+@keyframes roots-found {
+  0% {
+    box-shadow: 0 0 0 0 rgba(53, 91, 67, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(53, 91, 67, 0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .roots-modal-panel,
+  .roots-menu {
+    transition-property: opacity;
+  }
+  @starting-style {
+    .roots-modal-panel,
+    .roots-menu {
+      transform: none;
+    }
+  }
+  .roots-press:active:not(:disabled) {
+    transform: none;
+  }
+  .roots-node-found {
+    animation: none;
+  }
   .roots-enter {
     animation-name: roots-fade;
   }

@@ -65,8 +65,13 @@ export const Dialog = ({
       }
     };
     document.addEventListener("keydown", handleKeyDown);
+    // Scroll containment: the page behind a dialog doesn't scroll. Nested
+    // dialogs restore whatever the previous one set.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
       if (returnFocusTo?.isConnected) returnFocusTo.focus();
     };
   }, []);
@@ -104,7 +109,7 @@ export const Dialog = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#283b30]/30 px-4 py-10 sm:py-12"
+      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-[#283b30]/30 px-3 py-6 sm:px-4 sm:py-12"
       onMouseDown={onBackdropDown}
       onClick={onBackdropClick}
     >
@@ -115,7 +120,7 @@ export const Dialog = ({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         onKeyDown={trapFocus}
-        className={`relative mx-auto flex w-full ${widths[size]} flex-col gap-6 rounded-[20px] border border-solid border-[#dedcd2] bg-[#fffdf9] p-6 shadow-[0px_18px_48px_#3444321f] sm:p-8`}
+        className={`roots-modal-panel relative mx-auto flex w-full ${widths[size]} flex-col gap-6 rounded-[20px] border border-solid border-[#dedcd2] bg-[#fffdf9] p-5 shadow-[0px_18px_48px_#3444321f] sm:p-8`}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-1 flex-col gap-2">
@@ -139,7 +144,7 @@ export const Dialog = ({
             aria-label={`Close ${title}`}
             onClick={onClose}
             disabled={busy}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[#dedcd2] bg-[#fffdf9] disabled:opacity-50"
+            className="roots-press flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[#dedcd2] bg-[#fffdf9] hover:bg-[#f6f4ee] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#355b43] disabled:opacity-50"
           >
             <img alt="" aria-hidden="true" className="h-4 w-4" src="/img/vector-47.svg" />
           </button>
@@ -160,8 +165,8 @@ export const fieldErrorClass =
 export const formErrorClass =
   "w-full rounded-lg bg-[#f7ece6] p-3 [font-family:'Inter',Helvetica] text-sm text-[#8a3f2c]";
 export const primaryButtonClass =
-  "inline-flex h-11 items-center justify-center gap-2 rounded-[10px] bg-[#355b43] px-5 [font-family:'Inter',Helvetica] text-sm font-semibold text-white transition-[background-color,transform] duration-150 hover:bg-[#2b4a37] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-11 items-center justify-center gap-2 rounded-[10px] bg-[#355b43] px-5 [font-family:'Inter',Helvetica] text-sm font-semibold text-white transition-[background-color,transform] duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#355b43] hover:bg-[#2b4a37] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
 export const secondaryButtonClass =
-  "inline-flex h-11 items-center justify-center gap-2 rounded-[10px] border border-[#dedcd2] bg-white px-5 [font-family:'Inter',Helvetica] text-sm font-semibold text-[#283b30] transition-[background-color,transform] duration-150 hover:bg-[#f6f4ee] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-11 items-center justify-center gap-2 rounded-[10px] border border-[#dedcd2] bg-white px-5 [font-family:'Inter',Helvetica] text-sm font-semibold text-[#283b30] transition-[background-color,transform] duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#355b43] hover:bg-[#f6f4ee] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
 export const dangerButtonClass =
-  "inline-flex h-11 items-center justify-center gap-2 rounded-[10px] bg-[#8a3f2c] px-5 [font-family:'Inter',Helvetica] text-sm font-semibold text-white transition-[background-color,transform] duration-150 hover:bg-[#73331f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-11 items-center justify-center gap-2 rounded-[10px] bg-[#8a3f2c] px-5 [font-family:'Inter',Helvetica] text-sm font-semibold text-white transition-[background-color,transform] duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#355b43] hover:bg-[#73331f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";

@@ -55,13 +55,15 @@ describe("My Trees dashboard", () => {
     expect(await screen.findByRole("heading", { name: "My Family Trees" })).toBeInTheDocument();
     expect(screen.getByText("Explore the family trees you've created or joined.")).toBeInTheDocument();
 
-    const aditya = await screen.findByRole("link", { name: "Open Aditya Family" });
-    expect(aditya).toHaveAttribute("href", "/family-tree/11");
+    // The card is an <article>; its heading link stretches over the whole card.
+    const adityaLink = await screen.findByRole("link", { name: "Open Aditya Family" });
+    expect(adityaLink).toHaveAttribute("href", "/family-tree/11");
+    const aditya = adityaLink.closest("article") as HTMLElement;
     expect(within(aditya).getByText("Tree Owner")).toBeInTheDocument();
     expect(within(aditya).getByText("Our family's history")).toBeInTheDocument();
     expect(within(aditya).getByText(/0 family members/)).toBeInTheDocument();
 
-    const other = screen.getByRole("link", { name: "Open Other Family" });
+    const other = screen.getByRole("link", { name: "Open Other Family" }).closest("article") as HTMLElement;
     expect(within(other).getByText("Collaborator")).toBeInTheDocument();
     expect(within(other).getByText(/12 family members/)).toBeInTheDocument();
     expect(within(other).getByText(/Created/)).toBeInTheDocument();
