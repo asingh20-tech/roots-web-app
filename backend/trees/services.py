@@ -9,6 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import (
+    EDITABLE_STATUSES,
     ChangeType,
     Document,
     FamilyMember,
@@ -19,6 +20,11 @@ from .models import (
 
 EDITABLE_MEMBER_FIELDS = {"first_name", "last_name", "gender", "birth_date", "death_date"}
 REVIEWABLE = [SuggestionStatus.PENDING, SuggestionStatus.OUTDATED]
+
+
+class SuggestionLocked(ValidationError):
+    """FR-24: the suggestion is no longer PENDING (the Owner reviewed it, or it
+    went outdated / was withdrawn), so its author can't edit or withdraw it."""
 
 
 class OutdatedSuggestion(ValidationError):
@@ -53,18 +59,30 @@ def _finish(s, owner, status, extra_fields=()):
     return s
 
 
+def _json_value(value):
+    return value.isoformat() if hasattr(value, "isoformat") else value
+
+
+def member_snapshot(member, fields):
+    """The member's current values for the given fields, JSON-ready."""
+    return {f: _json_value(getattr(member, f, None)) for f in fields if f in EDITABLE_MEMBER_FIELDS}
+
+
 def compare(suggestion):
-    """FR-21: {field: {"current": ..., "proposed": ...}} for UPDATE_MEMBER."""
+    """FR-21: {field: {"original", "current", "proposed"}} for UPDATE_MEMBER.
+
+    original = the value when the suggestion was submitted (left out for rows
+    made before original_data existed), current = the saved value now."""
     if suggestion.change_type != ChangeType.UPDATE_MEMBER or not suggestion.target_member_id:
         return None
     member = suggestion.target_member
+    original = suggestion.original_data
     out = {}
     for field, proposed in (suggestion.proposed_data or {}).items():
-        current = getattr(member, field, None)
-        out[field] = {
-            "current": current.isoformat() if hasattr(current, "isoformat") else current,
-            "proposed": proposed,
-        }
+        row = {"current": _json_value(getattr(member, field, None)), "proposed": proposed}
+        if original is not None:  # not recorded for suggestions made before FR-21 snapshots
+            row["original"] = original.get(field)
+        out[field] = row
     return out
 
 
@@ -85,6 +103,10 @@ def approve_suggestion(suggestion_id, owner, confirm_outdated=False):
     if s.change_type == ChangeType.ADD_MEMBER:
         member = FamilyMember(tree=s.tree, **_member_fields(s.proposed_data))
         member.full_clean()
+        # FR-25: provenance comes from the locked suggestion row, never from
+        # request data, so a client can't forge who contributed a member.
+        member.contributed_by_id = s.submitted_by_id
+        member.source_suggestion = s
         member.save()
         s.target_member = member  # link the suggestion to the member it created
         extra.append("target_member")
@@ -121,17 +143,23 @@ def approve_suggestion(suggestion_id, owner, confirm_outdated=False):
         )
         relationship.full_clean()
         relationship.save()
-    else:
+    elif s.change_type == ChangeType.UPDATE_MEMBER:
         member = FamilyMember.objects.select_for_update().get(pk=s.target_member_id)
         if member.version != s.based_on_version and not confirm_outdated:
             raise OutdatedSuggestion("Member changed since this suggestion was made.")
-        if s.change_type == ChangeType.UPDATE_MEMBER:
-            for field, value in _member_fields(s.proposed_data).items():
-                setattr(member, field, value)
-            member.full_clean()
-            member.save()  # also marks other pending suggestions OUTDATED
-        elif s.change_type == ChangeType.ADD_MEDIA:
-            Document.objects.create(member=member, file=s.proposed_file, uploaded_by=s.submitted_by)
+        for field, value in _member_fields(s.proposed_data).items():
+            setattr(member, field, value)
+        member.full_clean()
+        member.save()  # also marks other pending edits of this member OUTDATED
+    elif s.change_type == ChangeType.ADD_MEDIA:
+        member = FamilyMember.objects.select_for_update().get(pk=s.target_member_id)
+        if not s.proposed_file:
+            raise ValidationError("This suggestion has no file to attach.")
+        Document.objects.create(member=member, file=s.proposed_file, uploaded_by=s.submitted_by)
+        # The Document now owns the stored file. Drop the suggestion's
+        # reference so deleting the suggestion later can't delete the file.
+        s.proposed_file = None
+        extra.append("proposed_file")
 
     return _finish(s, owner, SuggestionStatus.APPROVED, extra)
 
@@ -145,3 +173,42 @@ def reject_suggestion(suggestion_id, owner):
         s.proposed_file = None
         return _finish(s, owner, SuggestionStatus.REJECTED, ["proposed_file"])
     return _finish(s, owner, SuggestionStatus.REJECTED)
+
+
+def _lock_own_editable(suggestion_id, user):
+    """FR-24: lock a suggestion its author may still change.
+
+    Takes the same row lock as approve/reject, so an edit or withdrawal and an
+    Owner review of the same suggestion run one after the other; whichever
+    comes second sees the new status and fails safely."""
+    s = SuggestRequest.objects.select_for_update().get(pk=suggestion_id)
+    if s.submitted_by_id != user.pk:
+        raise PermissionDenied("You can only change your own suggestions.")
+    if s.status not in EDITABLE_STATUSES:
+        raise SuggestionLocked(
+            f"This suggestion is {s.get_status_display().lower()} and can no longer be changed."
+        )
+    return s
+
+
+@transaction.atomic
+def withdraw_suggestion(suggestion_id, user):
+    """FR-24: the author takes back a PENDING suggestion. The row is kept as
+    WITHDRAWN for the audit trail; a proposed file is deleted (it was never
+    approved, so it must not linger in private storage)."""
+    s = _lock_own_editable(suggestion_id, user)
+    s.status = SuggestionStatus.WITHDRAWN
+    s.withdrawn_at = timezone.now()
+    fields = ["status", "withdrawn_at"]
+    if s.proposed_file:
+        storage, name = s.proposed_file.storage, s.proposed_file.name
+        transaction.on_commit(lambda: storage.delete(name))
+        s.proposed_file = None
+        fields.append("proposed_file")
+    s.save(update_fields=fields)
+    return s
+
+
+def lock_for_edit(suggestion_id, user):
+    """FR-24: call inside a transaction before saving an author's edit."""
+    return _lock_own_editable(suggestion_id, user)

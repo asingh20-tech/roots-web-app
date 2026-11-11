@@ -14,8 +14,10 @@ from rest_framework.generics import (
     ListCreateAPIView,
     RetrieveAPIView,
     RetrieveDestroyAPIView,
+    RetrieveUpdateAPIView,
     RetrieveUpdateDestroyAPIView,
 )
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -45,9 +47,30 @@ from .serializers import (
     SuggestionSerializer,
     invitation_url,
 )
-from .services import OutdatedSuggestion, approve_suggestion, mark_outdated, reject_suggestion
+from .services import (
+    OutdatedSuggestion,
+    SuggestionLocked,
+    approve_suggestion,
+    lock_for_edit,
+    mark_outdated,
+    reject_suggestion,
+    withdraw_suggestion,
+)
 
 SEARCH_LIMIT = 50
+
+
+class OptionalPagePagination(PageNumberPagination):
+    """Paginate only when the client asks (?page=N), so existing callers that
+    expect a plain list keep working. Response: {count, next, previous, results}."""
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+    def paginate_queryset(self, queryset, request, view=None):
+        if self.page_query_param not in request.query_params:
+            return None
+        return super().paginate_queryset(queryset, request, view)
 
 
 # ---------- Trees ----------
@@ -109,7 +132,11 @@ class FamilyMemberListCreateView(TreeScopedMixin, ListCreateAPIView):
     serializer_class = FamilyMemberSerializer
 
     def get_queryset(self):
-        return FamilyMember.objects.filter(tree=self.get_tree()).order_by("last_name", "first_name")
+        return (
+            FamilyMember.objects.filter(tree=self.get_tree())
+            .select_related("contributed_by")
+            .order_by("last_name", "first_name")
+        )
 
     def perform_create(self, serializer):
         serializer.save(tree=self.get_tree())
@@ -123,7 +150,11 @@ class FamilyMemberDetailView(TreeScopedMixin, RetrieveUpdateDestroyAPIView):
         return FamilyMemberDetailSerializer if self.request.method == "GET" else FamilyMemberSerializer
 
     def get_queryset(self):
-        return FamilyMember.objects.filter(tree=self.get_tree()).prefetch_related("documents")
+        return (
+            FamilyMember.objects.filter(tree=self.get_tree())
+            .select_related("contributed_by")
+            .prefetch_related("documents")
+        )
 
 
 # ---------- Relationships (FR-5) ----------
@@ -339,7 +370,9 @@ class SuggestionQuerysetMixin(TreeScopedMixin):
 
     def get_queryset(self):
         tree = self.get_tree()
-        qs = SuggestRequest.objects.filter(tree=tree).select_related("target_member", "submitted_by")
+        qs = SuggestRequest.objects.filter(tree=tree).select_related(
+            "target_member", "submitted_by", "reviewed_by"
+        )
         if not tree.is_owner(self.request.user):
             qs = qs.filter(submitted_by=self.request.user)  # Collaborators see their own
         return qs
@@ -347,12 +380,16 @@ class SuggestionQuerysetMixin(TreeScopedMixin):
 
 class SuggestionListCreateView(SuggestionQuerysetMixin, ListCreateAPIView):
     """GET: Owner sees PENDING + OUTDATED by default (?status=ALL|APPROVED|...).
+    Collaborators only ever see their own. Add ?page=N for pages of 20 (FR-24).
     POST: Collaborator submits (JSON, or multipart for ADD_MEDIA)."""
     serializer_class = SuggestionSerializer
     parser_classes = [JSONParser, MultiPartParser, FormParser]
+    pagination_class = OptionalPagePagination
 
     def get_queryset(self):
         qs = super().get_queryset()
+        if "page" in self.request.query_params:
+            qs = qs.order_by("-created_at", "-id")  # newest first in My Contributions
         wanted = self.request.query_params.get("status", "OPEN").upper()
         if wanted == "OPEN":
             return qs.filter(status__in=[SuggestionStatus.PENDING, SuggestionStatus.OUTDATED])
@@ -364,9 +401,52 @@ class SuggestionListCreateView(SuggestionQuerysetMixin, ListCreateAPIView):
         serializer.save(tree=self.get_tree(), submitted_by=self.request.user)
 
 
-class SuggestionDetailView(SuggestionQuerysetMixin, RetrieveAPIView):
-    """GET: one suggestion, with current vs proposed values (FR-21)."""
+class SuggestionDetailView(SuggestionQuerysetMixin, RetrieveUpdateAPIView):
+    """GET: one suggestion, with original / current / proposed values (FR-21).
+    PATCH (FR-24, proposed): its author edits it while it is PENDING. JSON, or
+    multipart to replace an ADD_MEDIA file. The Owner and other Collaborators
+    get 403 / 404; a reviewed, outdated or withdrawn suggestion gets 409."""
     serializer_class = SuggestionSerializer
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def update(self, request, *args, **kwargs):
+        visible = get_object_or_404(self.get_queryset(), pk=kwargs["pk"])
+        try:
+            # Same row lock as approve/reject (ATOMIC_REQUESTS wraps the request).
+            locked = lock_for_edit(visible.pk, request.user)
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(str(exc))
+        except SuggestionLocked as exc:
+            return _locked_response(exc, visible, request)
+        serializer = self.get_serializer(locked, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+def _locked_response(exc, suggestion, request):
+    suggestion.refresh_from_db()
+    return Response(
+        {"detail": exc.messages[0], "code": "locked",
+         "suggestion": SuggestionSerializer(suggestion, context={"request": request}).data},
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
+class SuggestionWithdrawView(SuggestionQuerysetMixin, APIView):
+    """POST (FR-24, proposed): the author withdraws their PENDING suggestion.
+    Kept as WITHDRAWN for the audit trail; 409 once it has been reviewed."""
+
+    def post(self, request, tree_id, pk):
+        visible = get_object_or_404(self.get_queryset(), pk=pk)
+        try:
+            suggestion = withdraw_suggestion(visible.pk, request.user)
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(str(exc))
+        except SuggestionLocked as exc:
+            return _locked_response(exc, visible, request)
+        return Response(SuggestionSerializer(suggestion, context={"request": request}).data)
 
 
 class SuggestionFileView(SuggestionQuerysetMixin, APIView):
@@ -391,14 +471,14 @@ class _ReviewView(SuggestionQuerysetMixin, APIView):
             suggestion.refresh_from_db()
             return Response(
                 {"detail": exc.messages[0], "code": "outdated",
-                 "suggestion": SuggestionSerializer(suggestion).data},
+                 "suggestion": SuggestionSerializer(suggestion, context={"request": request}).data},
                 status=status.HTTP_409_CONFLICT,
             )
         except DjangoPermissionDenied as exc:
             raise PermissionDenied(str(exc))
         except DjangoValidationError as exc:
             raise ValidationError(exc.message_dict if hasattr(exc, "error_dict") else exc.messages)
-        return Response(SuggestionSerializer(suggestion).data)
+        return Response(SuggestionSerializer(suggestion, context={"request": request}).data)
 
 
 class SuggestionApproveView(_ReviewView):

@@ -266,6 +266,18 @@ class FamilyMember(models.Model):
     # FR-21: bumped on every save; suggestions record the version they saw.
     version = models.PositiveIntegerField(default=1, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
+    # FR-25 (proposed): who originally proposed this member. NULL = the Tree
+    # Owner added it directly (or the contributor's account no longer exists).
+    # SET_NULL, never CASCADE: removing a person must not delete family history.
+    # Set only by approve_suggestion(); never writable through the API.
+    contributed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        editable=False, related_name="contributed_members",
+    )
+    source_suggestion = models.OneToOneField(
+        "SuggestRequest", on_delete=models.SET_NULL, null=True, blank=True,
+        editable=False, related_name="created_member",
+    )
 
     class Meta:
         db_table = "family_member"
@@ -312,8 +324,12 @@ class FamilyMember(models.Model):
                 kwargs["update_fields"] = {*update_fields, "version", "updated_at"}
         super().save(*args, **kwargs)
         if not adding:
-            # FR-21: pending suggestions based on an older version are now outdated.
-            self.suggestions.filter(status=SuggestionStatus.PENDING).exclude(
+            # FR-21: pending edits based on an older version are now outdated.
+            # Only UPDATE_MEMBER compares field values; a proposed document
+            # (ADD_MEDIA) is still valid after a name change.
+            self.suggestions.filter(
+                status=SuggestionStatus.PENDING, change_type=ChangeType.UPDATE_MEMBER
+            ).exclude(
                 based_on_version=self.version
             ).update(status=SuggestionStatus.OUTDATED)
 
@@ -483,6 +499,13 @@ class SuggestionStatus(models.TextChoices):
     APPROVED = "APPROVED", "Approved"
     REJECTED = "REJECTED", "Rejected"
     OUTDATED = "OUTDATED", "Outdated"  # FR-21: member changed since it was submitted
+    # FR-24 (proposed): the Collaborator took back their own pending suggestion.
+    # Kept (not deleted) so the history stays auditable.
+    WITHDRAWN = "WITHDRAWN", "Withdrawn"
+
+
+# Statuses a Collaborator may still edit or withdraw (FR-24).
+EDITABLE_STATUSES = [SuggestionStatus.PENDING]
 
 
 class SuggestRequest(models.Model):
@@ -515,11 +538,16 @@ class SuggestRequest(models.Model):
                 validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), validate_upload_size, validate_file_signature],
     )
     based_on_version = models.PositiveIntegerField(null=True, blank=True)  # FR-21
+    # FR-21: the target member's values (for the proposed fields) when the
+    # suggestion was made, so the Owner sees original / current / proposed.
+    original_data = models.JSONField(null=True, blank=True)
     status = models.CharField(
         max_length=20, choices=SuggestionStatus.choices, default=SuggestionStatus.PENDING
     )
     created_at = models.DateTimeField(auto_now_add=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    edited_at = models.DateTimeField(null=True, blank=True)  # FR-24: last edit by its author
+    withdrawn_at = models.DateTimeField(null=True, blank=True)  # FR-24
 
     class Meta:
         db_table = "suggest_request"

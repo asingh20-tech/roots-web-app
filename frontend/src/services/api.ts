@@ -97,6 +97,9 @@ export const firstErrorMessage = (value: unknown): string | null => {
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  // A plain object is sent as JSON. FormData is sent as multipart and the
+  // browser sets Content-Type (with the boundary) itself, so it must not be
+  // forced to JSON here.
   body?: unknown;
   signal?: AbortSignal;
 };
@@ -107,13 +110,15 @@ export const apiRequest = async <T>(
 ): Promise<T> => {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (method !== "GET") headers["X-CSRFToken"] = await getCsrfToken();
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
 
   const response = await fetch(path, {
     method,
     credentials: "include",
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body:
+      body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
     signal,
   });
 

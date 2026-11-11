@@ -31,6 +31,7 @@ from trees.views import (
     SuggestionFileView,
     SuggestionListCreateView,
     SuggestionRejectView,
+    SuggestionWithdrawView,
 )
 
 
@@ -102,6 +103,8 @@ urlpatterns = [
     path("api/trees/<int:tree_id>/suggestions/<int:pk>/file/", SuggestionFileView.as_view(), name="suggestion-file"),
     path("api/trees/<int:tree_id>/suggestions/<int:pk>/approve/", SuggestionApproveView.as_view(), name="suggestion-approve"),
     path("api/trees/<int:tree_id>/suggestions/<int:pk>/reject/", SuggestionRejectView.as_view(), name="suggestion-reject"),
+    # FR-24 (proposed): an author withdraws their own pending suggestion
+    path("api/trees/<int:tree_id>/suggestions/<int:pk>/withdraw/", SuggestionWithdrawView.as_view(), name="suggestion-withdraw"),
 
    
 ]

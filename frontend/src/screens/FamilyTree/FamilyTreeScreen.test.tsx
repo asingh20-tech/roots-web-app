@@ -310,7 +310,9 @@ describe("Collaborator", () => {
     fill("Notes for the Tree Owner", "Cy's daughter.");
     fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Request sent.");
+    expect(
+      await within(dialog("Request a change")).findByRole("status"),
+    ).toHaveTextContent("Request sent.");
     expect(api.writes()).toEqual([
       expect.objectContaining({ method: "POST", url: "/api/trees/22/suggestions/" }),
     ]);

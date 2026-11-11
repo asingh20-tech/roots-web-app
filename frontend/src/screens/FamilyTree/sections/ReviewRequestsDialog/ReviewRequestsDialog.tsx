@@ -168,27 +168,25 @@ export const ReviewRequestsDialog = ({
         );
       }
       case "UPDATE_MEMBER":
+        // After a 409 the response carries the freshest comparison.
         return (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[13px]">
-            {Object.entries(request.comparison ?? {}).map(([field, values]) => (
-              <FieldRow
-                key={field}
-                label={fieldLabels[field] ?? field}
-                value={`${display(field, values.current)} → ${display(field, values.proposed)}`}
-              />
-            ))}
-          </dl>
+          <ComparisonTable
+            comparison={items[request.id]?.outdated?.comparison ?? request.comparison ?? {}}
+          />
         );
       case "ADD_MEDIA":
         return request.file_url ? (
-          <a
-            href={request.file_url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[13px] font-semibold text-[#355b43] underline underline-offset-2"
-          >
-            Preview the proposed document
-          </a>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-[#283b30]">
+            <span className="font-semibold">{request.file_name ?? "Proposed document"}</span>
+            <a
+              href={request.file_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-h-11 items-center font-semibold text-[#355b43] underline underline-offset-2"
+            >
+              Preview<span className="sr-only"> {request.file_name ?? "the proposed document"} (opens in a new tab)</span>
+            </a>
+          </p>
         ) : null;
     }
   };
@@ -257,6 +255,12 @@ export const ReviewRequestsDialog = ({
                     About <span className="font-semibold text-[#283b30]">{request.target_member_name}</span>
                   </p>
                 )}
+                {outdated && (
+                  <p className="rounded-xl border border-[#e8d4cb] bg-[#fbf3ef] p-4 text-[13px] font-semibold leading-[20px] text-[#8a3f2c]">
+                    {request.target_member_name ?? "This person"} changed after this request was sent.
+                    Compare the saved values with the proposal below. Approving replaces the saved values.
+                  </p>
+                )}
                 {proposal(request)}
                 {request.description && (
                   <blockquote className="rounded-xl bg-[#f6f4ee] px-4 py-3 text-[13px] leading-[20px] text-[#283b30]">
@@ -265,22 +269,6 @@ export const ReviewRequestsDialog = ({
                     </span>
                     {request.description}
                   </blockquote>
-                )}
-                {outdated?.comparison && item.outdated && (
-                  <div className="rounded-xl border border-[#e8d4cb] bg-[#fbf3ef] p-4 text-[13px]">
-                    <p className="mb-2 font-semibold text-[#8a3f2c]">
-                      This person has changed since the request was made. Current → proposed:
-                    </p>
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
-                      {Object.entries(outdated.comparison).map(([field, values]) => (
-                        <FieldRow
-                          key={field}
-                          label={fieldLabels[field] ?? field}
-                          value={`${display(field, values.current)} → ${display(field, values.proposed)}`}
-                        />
-                      ))}
-                    </dl>
-                  </div>
                 )}
                 {item.error && (
                   <p role="alert" className={formErrorClass}>
@@ -299,12 +287,12 @@ export const ReviewRequestsDialog = ({
                   <button
                     type="button"
                     className={primaryButtonClass}
-                    onClick={() => void review(request, "approve", Boolean(item.outdated))}
+                    onClick={() => void review(request, "approve", Boolean(outdated))}
                     disabled={Boolean(item.busy)}
                   >
                     {item.busy === "approve"
                       ? "Approving…"
-                      : item.outdated
+                      : outdated
                         ? "Approve anyway"
                         : "Approve"}
                   </button>
@@ -317,6 +305,52 @@ export const ReviewRequestsDialog = ({
     </Dialog>
   );
 };
+
+// FR-21: values when the request was sent, saved now, and proposed, side by
+// side. A row whose saved value moved since then is flagged.
+const ComparisonTable = ({
+  comparison,
+}: {
+  comparison: NonNullable<ChangeRequest["comparison"]>;
+}) => (
+  <div className="-mx-1 overflow-x-auto px-1">
+    <table className="w-full min-w-[420px] border-separate border-spacing-0 text-left text-[13px]">
+      <caption className="sr-only">Saved and proposed values</caption>
+      <thead>
+        <tr className="text-[11px] uppercase tracking-[0.5px] text-[#7b8177]">
+          <th scope="col" className="border-b border-[#ece9e0] py-2 pr-3 font-semibold">Field</th>
+          <th scope="col" className="border-b border-[#ece9e0] py-2 pr-3 font-semibold">When sent</th>
+          <th scope="col" className="border-b border-[#ece9e0] py-2 pr-3 font-semibold">Saved now</th>
+          <th scope="col" className="border-b border-[#ece9e0] py-2 font-semibold">Proposed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {Object.entries(comparison).map(([field, values]) => {
+          // `original` is absent for requests made before it was recorded.
+          const known = "original" in values;
+          const moved = known && (values.original ?? null) !== (values.current ?? null);
+          return (
+            <tr key={field}>
+              <th scope="row" className="border-b border-[#f1efe8] py-2 pr-3 font-normal text-[#7b8177]">
+                {fieldLabels[field] ?? field}
+              </th>
+              <td className="border-b border-[#f1efe8] py-2 pr-3 text-[#283b30]">
+                {known ? display(field, values.original) : "Not recorded"}
+              </td>
+              <td className={`border-b border-[#f1efe8] py-2 pr-3 ${moved ? "font-semibold text-[#8a3f2c]" : "text-[#283b30]"}`}>
+                {display(field, values.current)}
+                {moved && <span className="sr-only"> (changed since the request was sent)</span>}
+              </td>
+              <td className="border-b border-[#f1efe8] py-2 font-semibold text-[#355b43]">
+                {display(field, values.proposed)}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
+);
 
 const FieldRow = ({ label, value }: { label: string; value: string }) => (
   <>

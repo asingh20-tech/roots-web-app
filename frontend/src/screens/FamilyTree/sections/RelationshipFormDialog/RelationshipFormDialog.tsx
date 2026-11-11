@@ -36,21 +36,38 @@ type RelationshipFormDialogProps = {
   members: FamilyMember[];
   // Pre-selects the first member (opened from a person's details).
   initialMemberId?: number;
-  onSubmit: (input: RelationshipInput) => Promise<void>;
+  // Editing a Collaborator's pending ADD_RELATIONSHIP suggestion (FR-24):
+  // prefilled values, its own wording, and a required notes field whose
+  // value is passed to onSubmit.
+  initial?: Partial<RelationshipInput>;
+  notes?: string;
+  title?: string;
+  description?: string;
+  submitLabel?: string;
+  onSubmit: (input: RelationshipInput, notes: string) => Promise<void>;
   onClose: () => void;
 };
 
 export const RelationshipFormDialog = ({
   members,
   initialMemberId,
+  initial,
+  notes: initialNotes,
+  title = "Add a relationship",
+  description = "Connect two people who are already in this tree.",
+  submitLabel = "Add relationship",
   onSubmit,
   onClose,
 }: RelationshipFormDialogProps): JSX.Element => {
-  const [member1, setMember1] = useState(initialMemberId ? String(initialMemberId) : "");
-  const [member2, setMember2] = useState("");
-  const [type, setType] = useState<RelationshipType>("PARENT");
-  const [startDate, setStartDate] = useState("");
-  const [fieldError, setFieldError] = useState<{ member1?: string; member2?: string }>({});
+  const [member1, setMember1] = useState(
+    initial?.member1 ? String(initial.member1) : initialMemberId ? String(initialMemberId) : "",
+  );
+  const [member2, setMember2] = useState(initial?.member2 ? String(initial.member2) : "");
+  const [type, setType] = useState<RelationshipType>(initial?.relationship_type ?? "PARENT");
+  const [startDate, setStartDate] = useState(initial?.start_date ?? "");
+  const hasNotes = initialNotes !== undefined;
+  const [notes, setNotes] = useState(initialNotes ?? "");
+  const [fieldError, setFieldError] = useState<{ member1?: string; member2?: string; notes?: string }>({});
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -73,6 +90,7 @@ export const RelationshipFormDialog = ({
     if (!member1) errors.member1 = "Choose the first member.";
     if (!member2) errors.member2 = "Choose the second member.";
     else if (member1 === member2) errors.member2 = "Choose two different members.";
+    if (hasNotes && !notes.trim()) errors.notes = "Tell the Tree Owner how they are related.";
     setFieldError(errors);
     setFormError("");
     if (Object.keys(errors).length) return;
@@ -85,7 +103,7 @@ export const RelationshipFormDialog = ({
         member2: Number(member2),
         relationship_type: type,
         ...(type === "SPOUSE" && startDate ? { start_date: startDate } : {}),
-      });
+      }, notes.trim());
     } catch (error) {
       const message =
         (error instanceof ApiError &&
@@ -142,14 +160,14 @@ export const RelationshipFormDialog = ({
 
   return (
     <Dialog
-      title="Add a relationship"
-      description="Connect two people who are already in this tree."
+      title={title}
+      description={description}
       onClose={onClose}
       busy={submitting}
     >
       <form
         noValidate
-        aria-label="Add relationship"
+        aria-label={title}
         onSubmit={(event) => void handleSubmit(event)}
         className="flex flex-col gap-5"
       >
@@ -190,6 +208,30 @@ export const RelationshipFormDialog = ({
             />
           </label>
         )}
+        {hasNotes && (
+          <div className="flex flex-col gap-2">
+            <label className={fieldLabelClass}>
+              Notes for the Tree Owner
+              <textarea
+                name="notes"
+                rows={3}
+                value={notes}
+                onChange={(event) => {
+                  setNotes(event.target.value);
+                  setFieldError((current) => ({ ...current, notes: undefined }));
+                }}
+                aria-invalid={fieldError.notes ? true : undefined}
+                aria-describedby={fieldError.notes ? "notes-error" : undefined}
+                className={`${fieldControlClass} h-auto min-h-[96px] resize-y py-3`}
+              />
+            </label>
+            {fieldError.notes && (
+              <span id="notes-error" className={fieldErrorClass}>
+                {fieldError.notes}
+              </span>
+            )}
+          </div>
+        )}
         <p
           aria-live="polite"
           className="min-h-[44px] rounded-xl bg-[#e8ede3] px-4 py-3 [font-family:'Inter',Helvetica] text-[13px] text-[#283b30]"
@@ -211,7 +253,7 @@ export const RelationshipFormDialog = ({
             disabled={submitting || tooFewMembers}
             aria-busy={submitting || undefined}
           >
-            {submitting ? "Saving…" : "Add relationship"}
+            {submitting ? "Saving…" : submitLabel}
           </button>
         </div>
       </form>
