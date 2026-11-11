@@ -47,16 +47,24 @@ class ModelCleanMixin:
 class FamilyTreeSerializer(ModelCleanMixin, serializers.ModelSerializer):
     """FamilyTree as JSON. 'owner' is omitted so clients can't set it (FR-3)."""
     is_owner = serializers.SerializerMethodField()
+    member_count = serializers.SerializerMethodField()
 
     class Meta:
         model = FamilyTree
-        fields = ["id", "name", "description", "created_at", "is_owner"]
-        read_only_fields = ["id", "created_at", "is_owner"]
+        fields = ["id", "name", "description", "created_at", "is_owner", "member_count"]
+        read_only_fields = ["id", "created_at", "is_owner", "member_count"]
 
     def get_is_owner(self, obj):
         # Lets the frontend show/hide owner controls (Section 1.3.3).
         request = self.context.get("request")
         return bool(request and obj.owner_id == request.user.pk)
+
+    def get_member_count(self, obj):
+        # Saved members only (pending ADD_MEMBER suggestions are not counted).
+        # List/detail views annotate it in one query (with_member_count);
+        # a freshly created tree falls back to a count.
+        annotated = getattr(obj, "member_count", None)
+        return annotated if annotated is not None else obj.members.count()
 
 
 class FamilyMemberSerializer(ModelCleanMixin, serializers.ModelSerializer):

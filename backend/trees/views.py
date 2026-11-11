@@ -59,7 +59,11 @@ class FamilyTreeListCreateView(ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return FamilyTree.objects.accessible_to(self.request.user)
+        return (
+            FamilyTree.objects.accessible_to(self.request.user)
+            .with_member_count()
+            .order_by("-created_at", "-id")
+        )
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -73,7 +77,7 @@ class FamilyTreeDetailView(RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, IsTreeOwnerOrReadOnly]
 
     def get_queryset(self):
-        return FamilyTree.objects.accessible_to(self.request.user)
+        return FamilyTree.objects.accessible_to(self.request.user).with_member_count()
 
 
 # ---------- Tree-scoped base ----------

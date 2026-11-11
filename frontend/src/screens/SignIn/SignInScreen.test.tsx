@@ -104,7 +104,7 @@ describe("Sign-in screen (Google OAuth popup)", () => {
       "GET /api/trees/": () => json([]),
     });
     vi.spyOn(window, "open").mockReturnValue(window);
-    renderSignIn({ from: "/family-tree" });
+    renderSignIn({ from: "/my-trees" });
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Continue with Google" }),
@@ -113,7 +113,7 @@ describe("Sign-in screen (Google OAuth popup)", () => {
     await postLoginSuccess(window);
 
     expect(
-      await screen.findByText("You don't have a family tree yet"),
+      await screen.findByText("You don't have any family trees yet"),
     ).toBeInTheDocument();
   });
 

@@ -105,6 +105,19 @@ describe("Landing screen", () => {
       );
     });
 
+    it("View Tree opens My Trees", async () => {
+      mockApi({ ...signedInRoutes, "GET /api/trees/": () => json([tree]) });
+      renderApp();
+      fireEvent.click(await screen.findByRole("link", { name: /view tree/i }));
+      expect(
+        await screen.findByRole("heading", { name: "My Family Trees" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Open Smith Family Tree" })).toHaveAttribute(
+        "href",
+        `/family-tree/${tree.id}`,
+      );
+    });
+
     it("opens the dialog with the name field focused; Cancel closes it", async () => {
       mockApi(signedInRoutes);
       renderApp();
@@ -168,7 +181,7 @@ describe("Landing screen", () => {
           new Promise<Response>((resolve) => {
             respond = resolve;
           }),
-        "GET /api/trees/": () => json([tree]),
+        [`GET /api/trees/${tree.id}/`]: () => json(tree),
         [`GET /api/trees/${tree.id}/members/`]: () => json([]),
         [`GET /api/trees/${tree.id}/relationships/`]: () => json([]),
       });

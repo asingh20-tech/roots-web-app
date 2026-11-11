@@ -20,7 +20,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
-from django.db import models
+from django.db import connection, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -64,6 +64,28 @@ def private_upload_path(instance, filename):
     return f"trees/{tree_id}/{uuid.uuid4().hex}.{ext}"
 
 
+# Composite same-tree FKs added by migration 0002 (PostgreSQL only). They are
+# DEFERRABLE INITIALLY IMMEDIATE, so cross-tree inserts fail straight away.
+SAME_TREE_CONSTRAINTS = (
+    "relationship_member1_same_tree",
+    "relationship_member2_same_tree",
+    "suggest_request_target_same_tree",
+    "tree_collaborator_invitation_same_tree",
+)
+
+
+def _defer_same_tree_constraints():
+    """Django's delete collector can remove a family_member row before the
+    suggest_request rows that cascade from it (e.g. the approved ADD_MEMBER
+    suggestion that created the member). Django's own FKs are INITIALLY
+    DEFERRED so that ordering is fine for them, but the IMMEDIATE composite
+    FKs would fail mid-delete. Defer just these until the transaction
+    commits; PostgreSQL still checks them then."""
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute(f"SET CONSTRAINTS {', '.join(SAME_TREE_CONSTRAINTS)} DEFERRED")
+
+
 # --------------------------------------------------------------------------
 # family_tree / invitation / tree_collaborator
 # --------------------------------------------------------------------------
@@ -72,6 +94,23 @@ class FamilyTreeQuerySet(models.QuerySet):
     def accessible_to(self, user):
         """Trees the user owns or collaborates on (DB-4, FR-15)."""
         return self.filter(Q(owner=user) | Q(collaborators__user=user)).distinct()
+
+    def with_member_count(self):
+        """Annotate member_count with a subquery, so the collaborator join in
+        accessible_to() can't inflate it (a Count() over that join would)."""
+        from django.db.models import Count, IntegerField, OuterRef, Subquery
+        from django.db.models.functions import Coalesce
+
+        counts = (
+            FamilyMember.objects.filter(tree=OuterRef("pk"))
+            .order_by()
+            .values("tree")
+            .annotate(n=Count("pk"))
+            .values("n")
+        )
+        return self.annotate(
+            member_count=Coalesce(Subquery(counts, output_field=IntegerField()), 0)
+        )
 
 
 class FamilyTree(models.Model):
@@ -91,6 +130,11 @@ class FamilyTree(models.Model):
 
     def __str__(self):
         return self.name
+
+    def delete(self, *args, **kwargs):
+        with transaction.atomic():
+            _defer_same_tree_constraints()
+            return super().delete(*args, **kwargs)
 
     def is_owner(self, user):
         return user.is_authenticated and self.owner_id == user.pk
@@ -244,6 +288,12 @@ class FamilyMember(models.Model):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
+
+    def delete(self, *args, **kwargs):
+        # Also removes the member's relationships, documents and suggestions.
+        with transaction.atomic():
+            _defer_same_tree_constraints()
+            return super().delete(*args, **kwargs)
 
     def clean(self):
         if self.birth_date and self.death_date and self.death_date < self.birth_date:

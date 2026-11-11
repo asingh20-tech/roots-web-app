@@ -13,225 +13,370 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "../../AppRoutes";
-import { json, mockApi, signedOut, testUser, tree } from "../../test/mockApi";
+import type { ChangeRequest, FamilyTree } from "../../services/trees";
+import { fakeTreeApi, makeMember, makeRelationship } from "../../test/fakeTreeApi";
 
-const member = (id: number, first: string, last: string, birth: string | null) => ({
-  id,
-  first_name: first,
-  last_name: last,
-  full_name: `${first} ${last}`,
-  gender: "UNKNOWN",
-  birth_date: birth,
-  death_date: null,
-  photo_url: null,
-  version: 1,
-  updated_at: "2026-11-10T00:00:00Z",
+const ownedTree: FamilyTree = {
+  id: 11,
+  name: "Aditya Family",
+  description: null,
+  created_at: "2026-11-10T00:00:00Z",
+  is_owner: true,
+  member_count: 0,
+};
+const joinedTree: FamilyTree = { ...ownedTree, id: 22, name: "Other Family", is_owner: false };
+
+const lane = () => ({
+  [ownedTree.id]: [
+    makeMember(1, "Ada", "Lane", { birth_date: "1940-02-01" }),
+    makeMember(2, "Ben", "Lane", { birth_date: "1938-07-09" }),
+    makeMember(3, "Cy", "Lane", { birth_date: "1970-03-03" }),
+  ],
+});
+const laneRelationships = () => ({
+  [ownedTree.id]: [
+    makeRelationship(1, 1, 2, "SPOUSE"),
+    makeRelationship(2, 1, 3, "PARENT"),
+    makeRelationship(3, 2, 3, "PARENT"),
+  ],
 });
 
-const members = [
-  member(1, "Ada", "Lane", "1940-02-01"),
-  member(2, "Ben", "Lane", "1938-07-09"),
-  member(3, "Cy", "Lane", "1970-03-03"),
-];
-const relationships = [
-  { id: 1, member1: 1, member2: 2, relationship_type: "SPOUSE", start_date: null, created_at: "" },
-  { id: 2, member1: 1, member2: 3, relationship_type: "PARENT", start_date: null, created_at: "" },
-];
-
-const treeRoutes = (trees = [tree]) => ({
-  "GET /api/me/": () => json(testUser),
-  "GET /api/trees/": () => json(trees),
-  [`GET /api/trees/${tree.id}/members/`]: () => json(members),
-  [`GET /api/trees/${tree.id}/relationships/`]: () => json(relationships),
-});
-
-const renderTree = (path = "/family-tree") =>
+const renderAt = (path: string) =>
   render(
     <MemoryRouter initialEntries={[path]}>
       <AppRoutes />
     </MemoryRouter>,
   );
 
-describe("Family tree screen", () => {
-  beforeEach(() => {
-    document.cookie = "csrftoken=test-token";
-  });
+const card = (name: string) =>
+  screen.getByRole("button", { name: `View details for ${name}` });
 
-  afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-  });
+const dialog = (name: string | RegExp) => screen.getByRole("dialog", { name });
 
+const fill = (label: string | RegExp, value: string, container: HTMLElement = document.body) =>
+  fireEvent.change(within(container).getByLabelText(label), { target: { value } });
+
+beforeEach(() => {
+  document.cookie = "csrftoken=test-token";
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("Family tree routing", () => {
   it("redirects to sign-in without a session", async () => {
-    mockApi({ "GET /api/me/": signedOut });
-    renderTree();
-    expect(
-      await screen.findByRole("heading", { name: "Welcome to Roots" }),
-    ).toBeInTheDocument();
+    fakeTreeApi({ signedIn: false, trees: [ownedTree] });
+    renderAt("/family-tree/11");
+    expect(await screen.findByRole("heading", { name: "Welcome to Roots" })).toBeInTheDocument();
   });
 
-  it("renders the tree, members and relationships from the API", async () => {
-    mockApi(treeRoutes());
-    renderTree(`/family-tree?tree=${tree.id}`);
+  it("loads the tree named in the URL (so a refresh reopens it)", async () => {
+    const api = fakeTreeApi({ trees: [joinedTree, ownedTree], members: lane(), relationships: laneRelationships() });
+    renderAt("/family-tree/11");
 
-    expect(
-      await screen.findByRole("heading", { name: "Smith Family Tree" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Aditya Family" })).toBeInTheDocument();
     expect(screen.getByText("3 people")).toBeInTheDocument();
-    for (const name of ["Ada Lane", "Ben Lane", "Cy Lane"]) {
-      expect(
-        screen.getByRole("button", { name: `View details for ${name}` }),
-      ).toBeInTheDocument();
+    expect(api.calls.map((call) => call.url)).toEqual(
+      expect.arrayContaining(["/api/trees/11/", "/api/trees/11/members/", "/api/trees/11/relationships/"]),
+    );
+    // Not tree 22, even though it's first in the list.
+    expect(api.calls.some((call) => call.url.startsWith("/api/trees/22/"))).toBe(false);
+  });
+
+  it("shows not-found for a tree the user can't access", async () => {
+    fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree/999");
+    expect(await screen.findByRole("alert")).toHaveTextContent("doesn't exist or you don't have access");
+    expect(screen.getByRole("link", { name: "Back to My Trees" })).toHaveAttribute("href", "/my-trees");
+  });
+
+  it("Back to My Trees opens the dashboard, not the landing page", async () => {
+    fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("link", { name: /back to my trees/i }));
+    expect(await screen.findByRole("heading", { name: "My Family Trees" })).toBeInTheDocument();
+  });
+
+  it("redirects old /family-tree?tree= links to /family-tree/:id", async () => {
+    fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree?tree=11");
+    expect(await screen.findByRole("heading", { name: "Aditya Family" })).toBeInTheDocument();
+  });
+
+  it("switches trees from the tree menu", async () => {
+    fakeTreeApi({ trees: [ownedTree, joinedTree] });
+    renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("button", { name: "Switch family tree" }));
+    fireEvent.click(await screen.findByRole("link", { name: /Other Family/ }));
+    expect(await screen.findByRole("heading", { name: "Other Family" })).toBeInTheDocument();
+    expect(screen.getByText("Collaborator")).toBeInTheDocument();
+  });
+});
+
+describe("Tree Owner", () => {
+  it("adds the first member from the empty state and sees the node", async () => {
+    const api = fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree/11");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add the first member" }));
+    const form = dialog("Add a family member");
+    fireEvent.click(within(form).getByRole("button", { name: "Add member" }));
+    expect(within(form).getByText("Enter a first name.")).toBeInTheDocument();
+    expect(api.writes()).toHaveLength(0);
+
+    fill("First name", " Ada ", form);
+    fill("Last name", "Lane", form);
+    fill("Birth date (optional)", "1940-02-01", form);
+    fireEvent.click(within(form).getByRole("button", { name: "Add member" }));
+
+    // The new member is selected, so their details open over the canvas.
+    expect(await screen.findByRole("dialog", { name: "Ada Lane · Person details" })).toBeInTheDocument();
+    expect(card("Ada Lane")).toBeInTheDocument();
+    expect(screen.getByText("1 person")).toBeInTheDocument();
+    expect(api.writes()).toEqual([
+      {
+        method: "POST",
+        url: "/api/trees/11/members/",
+        body: { first_name: "Ada", last_name: "Lane", gender: "UNKNOWN", birth_date: "1940-02-01", death_date: null },
+      },
+    ]);
+  });
+
+  it("adds two members, connects them, and draws the connection", async () => {
+    const api = fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree/11");
+    await screen.findByRole("heading", { name: "Aditya Family" });
+
+    for (const [first, last] of [["Ada", "Lane"], ["Ben", "Lane"]]) {
+      fireEvent.click(screen.getByRole("button", { name: "Add Member" }));
+      const form = dialog("Add a family member");
+      fill("First name", first, form);
+      fill("Last name", last, form);
+      fireEvent.click(within(form).getByRole("button", { name: "Add member" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Close person details" }));
     }
-    expect(screen.getByText("Born 1940")).toBeInTheDocument();
-    // No leftover Figma sample data.
-    expect(screen.queryByText(/Bennett|Walker|Yorkshire/)).not.toBeInTheDocument();
+    expect(screen.getByText("2 people")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Relationship" }));
+    const form = dialog("Add a relationship");
+    fill("First member", String(api.db.members[11][0].id), form);
+    fill("Relationship", "SPOUSE", form);
+    fill("Second member", String(api.db.members[11][1].id), form);
+    expect(within(form).getByText("Ada Lane is the spouse of Ben Lane.")).toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Add relationship" }));
+
+    await waitFor(() => expect(document.querySelector('[data-edge="spouse"]')).not.toBeNull());
+    expect(document.querySelector('[data-marker="spouse"]')).not.toBeNull();
+    expect(api.db.relationships[11]).toHaveLength(1);
   });
 
-  it("zooms the canvas for real", async () => {
-    mockApi(treeRoutes());
-    renderTree();
-    await screen.findByRole("heading", { name: "Smith Family Tree" });
-
-    const card = screen.getByRole("button", { name: "View details for Ada Lane" });
-    const scaled = card.parentElement as HTMLElement;
-    expect(scaled.style.transform).toBe("scale(1)");
-
-    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
-    expect(scaled.style.transform).toBe("scale(1.25)");
-    expect(screen.getByRole("button", { name: "Zoom in" })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole("button", { name: /reset/i }));
-    expect(scaled.style.transform).toBe("scale(1)");
+  it("rejects a self-relationship before sending it", async () => {
+    const api = fakeTreeApi({ trees: [ownedTree], members: lane() });
+    renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("button", { name: "Add Relationship" }));
+    const form = dialog("Add a relationship");
+    fill("First member", "1", form);
+    fill("Second member", "1", form);
+    fireEvent.click(within(form).getByRole("button", { name: "Add relationship" }));
+    expect(within(form).getByText("Choose two different members.")).toBeInTheDocument();
+    expect(api.writes()).toHaveLength(0);
   });
 
-  it("shows a create prompt when the user has no trees", async () => {
-    mockApi(treeRoutes([]));
-    renderTree();
-    expect(
-      await screen.findByText("You don't have a family tree yet"),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Create Tree" })).toBeInTheDocument();
-  });
-
-  it("says so when ?tree= points at a tree the user can't see", async () => {
-    mockApi(treeRoutes());
-    renderTree("/family-tree?tree=999");
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "doesn't exist or you don't have access",
+  it("explains a duplicate relationship rejected by the server", async () => {
+    fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
+    renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("button", { name: "Add Relationship" }));
+    const form = dialog("Add a relationship");
+    fill("First member", "1", form);
+    fill("Relationship", "SPOUSE", form);
+    fill("Second member", "2", form);
+    fireEvent.click(within(form).getByRole("button", { name: "Add relationship" }));
+    expect(await within(form).findByRole("alert")).toHaveTextContent(
+      "These two people already have this relationship.",
     );
   });
 
-  it("opens member details with documents from the API", async () => {
-    mockApi({
-      ...treeRoutes(),
-      [`GET /api/trees/${tree.id}/members/1/`]: () =>
-        json({
-          ...members[0],
-          documents: [
-            {
-              id: 5,
-              name: "birth-certificate.pdf",
-              url: `/api/trees/${tree.id}/members/1/documents/5/file/`,
-              file_type: "pdf",
-              file_size: 204800,
-              uploaded_at: "2026-11-01T00:00:00Z",
-            },
-          ],
-        }),
-    });
-    renderTree();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "View details for Ada Lane" }),
-    );
+  it("edits a member and the card updates", async () => {
+    const api = fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
+    renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("button", { name: "View details for Cy Lane" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit details" }));
 
-    const dialog = await screen.findByRole("dialog", {
-      name: "Ada Lane · Person details",
-    });
-    expect(within(dialog).getByText("Spouse: Ben Lane")).toBeInTheDocument();
-    expect(within(dialog).getByText("Child: Cy Lane")).toBeInTheDocument();
-    expect(
-      await within(dialog).findByText("birth-certificate.pdf"),
-    ).toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "Open" })).toHaveAttribute(
-      "href",
-      `/api/trees/${tree.id}/members/1/documents/5/file/`,
-    );
+    const form = dialog("Edit Cy Lane");
+    expect(within(form).getByLabelText("First name")).toHaveValue("Cy");
+    fill("First name", "Cyrus", form);
+    fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
 
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "View details for Cyrus Lane" })).toBeInTheDocument();
+    expect(api.writes()[0]).toMatchObject({ method: "PATCH", url: "/api/trees/11/members/3/" });
   });
 
-  it("disables Request a change for the Tree Owner", async () => {
-    mockApi(treeRoutes());
-    renderTree();
-    expect(
-      await screen.findByRole("button", { name: "Request a change" }),
-    ).toBeDisabled();
-    expect(screen.getByText("Tree Owner")).toBeInTheDocument();
+  it("deletes a member only after confirmation", async () => {
+    const api = fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
+    renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("button", { name: "View details for Cy Lane" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete person" }));
+
+    const confirm = screen.getByRole("alertdialog", { name: "Delete Cy Lane?" });
+    expect(within(confirm).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    expect(api.writes()).toHaveLength(0);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete person" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete person" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "View details for Cy Lane" })).not.toBeInTheDocument());
+    expect(screen.getByText("2 people")).toBeInTheDocument();
+    expect(api.writes()).toEqual([{ method: "DELETE", url: "/api/trees/11/members/3/", body: undefined }]);
+    // Their parent–child links went with them.
+    expect(document.querySelectorAll('[data-edge="parent"]')).toHaveLength(0);
   });
 
-  it("lets a Collaborator submit a change request to the tree", async () => {
-    const collaboratorTree = { ...tree, is_owner: false };
-    const fetchMock = mockApi({
-      ...treeRoutes([collaboratorTree]),
-      [`POST /api/trees/${tree.id}/suggestions/`]: () =>
-        json({ id: 1, change_type: "ADD_RELATIONSHIP", status: "PENDING" }, 201),
-    });
-    renderTree();
+  it("removes a relationship with confirmation", async () => {
+    fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
+    renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("button", { name: "View details for Ada Lane" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove relationship: Spouse: Ben Lane" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove relationship" }));
+    await waitFor(() => expect(document.querySelector('[data-edge="spouse"]')).toBeNull());
+  });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Request a change" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add relationship" }));
-    // Member options come from the API, not sample data.
-    const first = screen.getByLabelText("First member");
-    expect(within(first).getByRole("option", { name: "Ada Lane" })).toBeInTheDocument();
-    fireEvent.change(first, { target: { value: "2" } });
-    fireEvent.change(screen.getByLabelText("Relationship"), {
-      target: { value: "PARENT" },
+  it("reviews requests: approving adds the member, rejecting doesn't", async () => {
+    const request = (id: number, first: string): ChangeRequest => ({
+      id,
+      change_type: "ADD_MEMBER",
+      description: `Please add ${first}.`,
+      target_member: null,
+      target_member_name: null,
+      proposed_data: { first_name: first, last_name: "Lane" },
+      file_url: null,
+      status: "PENDING",
+      is_outdated: false,
+      comparison: null,
+      submitted_by_name: "Cole Collab",
+      created_at: "2026-11-09T00:00:00Z",
+      reviewed_at: null,
     });
-    fireEvent.change(screen.getByLabelText("Second member"), {
-      target: { value: "3" },
+    fakeTreeApi({ trees: [ownedTree], suggestions: { 11: [request(50, "Dee"), request(51, "Eve")] } });
+    renderAt("/family-tree/11");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review Requests (2 waiting)" }));
+    const review = await screen.findByRole("dialog", { name: "Review change requests" });
+    const [dee] = await within(review).findAllByRole("listitem", { name: "Add member request from Cole Collab" });
+    expect(within(review).getByText("Please add Dee.")).toBeInTheDocument();
+
+    fireEvent.click(within(dee).getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(within(review).queryByText("Please add Dee.")).not.toBeInTheDocument());
+    fireEvent.click(within(review).getByRole("button", { name: "Reject" }));
+    expect(await within(review).findByText("No requests are waiting for review.")).toBeInTheDocument();
+
+    fireEvent.click(within(review).getByRole("button", { name: "Close Review change requests" }));
+    expect(card("Dee Lane")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View details for Eve Lane" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review Requests" })).toBeInTheDocument();
+  });
+
+  it("creates an invitation link", async () => {
+    fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("button", { name: "Invite Link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create invitation link" }));
+    expect(await screen.findByDisplayValue("http://localhost:5173/invite/tok123")).toBeInTheDocument();
+  });
+});
+
+describe("Collaborator", () => {
+  it("can view and request changes but has no direct editing controls", async () => {
+    const api = fakeTreeApi({
+      trees: [joinedTree],
+      members: { 22: [makeMember(1, "Ada", "Lane"), makeMember(2, "Cy", "Lane")] },
     });
-    fireEvent.change(screen.getByLabelText("Notes for the Tree Owner"), {
-      target: { value: "Ben is Cy's father." },
-    });
+    renderAt("/family-tree/22");
+
+    expect(await screen.findByRole("heading", { name: "Other Family" })).toBeInTheDocument();
+    for (const name of ["Add Member", "Add Relationship", "Review Requests", "Invite Link"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    fireEvent.click(card("Ada Lane"));
+    await screen.findByRole("dialog", { name: "Ada Lane · Person details" });
+    expect(screen.queryByRole("button", { name: "Edit details" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete person" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close person details" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Request a change" }));
+    fill("First name", "Dee");
+    fill("Last name", "Lane");
+    fill("Notes for the Tree Owner", "Cy's daughter.");
     fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("Request sent.");
-    const call = fetchMock.mock.calls.find(
-      ([url]) => url === `/api/trees/${tree.id}/suggestions/`,
-    ) as [string, RequestInit];
-    expect(JSON.parse(call[1].body as string)).toEqual({
-      change_type: "ADD_RELATIONSHIP",
-      description: "Ben is Cy's father.",
-      proposed_data: { member1: 2, member2: 3, relationship_type: "PARENT" },
-    });
+    expect(api.writes()).toEqual([
+      expect.objectContaining({ method: "POST", url: "/api/trees/22/suggestions/" }),
+    ]);
+    // Pending: the tree itself is unchanged.
+    expect(api.db.members[22]).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "View details for Dee Lane" })).not.toBeInTheDocument();
+  });
+});
 
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
-    );
+describe("Visualizer", () => {
+  it("shows an empty state with no members", async () => {
+    fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree/11");
+    expect(await screen.findByText("No family members yet")).toBeInTheDocument();
+    expect(screen.queryByTestId("tree-content")).not.toBeInTheDocument();
+  });
+
+  it("draws parent–child links from a couple and a spouse marker", async () => {
+    fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
+    renderAt("/family-tree/11");
+    await screen.findByRole("button", { name: "View details for Cy Lane" });
+    // One couple → child line (from the marriage marker), one spouse line.
+    expect(document.querySelectorAll('[data-edge="parent"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-edge="spouse"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-marker="spouse"]')).toHaveLength(1);
+  });
+
+  it("zooms with the controls and pans by dragging", async () => {
+    fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
+    renderAt("/family-tree/11");
+    await screen.findByRole("button", { name: "View details for Ada Lane" });
+    const content = screen.getByTestId("tree-content");
+    const start = content.style.transform;
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(content.style.transform).toContain("scale(1.2)");
+    fireEvent.click(screen.getByRole("button", { name: /reset to 100%/ }));
+    expect(content.style.transform).toContain("scale(1)");
+
+    const viewport = screen.getByRole("application");
+    fireEvent.pointerDown(viewport, { button: 0, pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(viewport, { pointerId: 1, clientX: 160, clientY: 130 });
+    fireEvent.pointerUp(viewport, { pointerId: 1, clientX: 160, clientY: 130 });
+    expect(content.style.transform).not.toBe(start);
+    expect(content.style.transform).toMatch(/translate\(60px, 30px\)/);
+
+    fireEvent.keyDown(viewport, { key: "ArrowRight" });
+    expect(content.style.transform).toMatch(/translate\(0px, 30px\)/);
+  });
+
+  it("selects a member to open their details", async () => {
+    fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
+    renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("button", { name: "View details for Ada Lane" }));
+    const details = await screen.findByRole("dialog", { name: "Ada Lane · Person details" });
+    expect(within(details).getByText("Spouse: Ben Lane")).toBeInTheDocument();
+    expect(within(details).getByText("Child: Cy Lane")).toBeInTheDocument();
   });
 
   it("signs out from the account menu and lands on the home page", async () => {
-    const fetchMock = mockApi({
-      ...treeRoutes(),
-      "POST /api/logout/": () => new Response(null, { status: 204 }),
-    });
-    renderTree();
+    const api = fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree/11");
     expect(await screen.findByText("TU")).toBeInTheDocument(); // real initials
-
     fireEvent.click(screen.getByRole("button", { name: /my account/i }));
-    expect(screen.queryByRole("menuitem", { name: "Profile" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
-
-    expect(
-      await screen.findByRole("heading", { name: "Begin Your Family Tree" }),
-    ).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: /sign in/i })).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/logout/",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(await screen.findByRole("heading", { name: "Begin Your Family Tree" })).toBeInTheDocument();
+    expect(api.calls).toContainEqual(expect.objectContaining({ method: "POST", url: "/api/logout/" }));
   });
 });

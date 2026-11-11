@@ -6,24 +6,57 @@ recorded" means the code never carried one, so none is guessed here.
 
 ## Active screens
 
-| Screen (route) | File | Figma node | Data source |
-| --- | --- | --- | --- |
-| Landing (`/`) | `src/screens/Landing/LandingScreen.tsx` | not recorded (was `Wireframe/RootsHome.tsx`) | `GET /api/me/`, `POST /api/trees/` |
-| Sign in (`/sign-in`) | `src/screens/SignIn/SignInScreen.tsx` | `73:2` | Django allauth Google popup, `GET /api/me/` |
-| Family tree (`/family-tree?tree=<id>`, sign-in required) | `src/screens/FamilyTree/FamilyTreeScreen.tsx` | not recorded (was `RootsFamilyTree`) | `GET /api/trees/`, `/members/`, `/relationships/` |
+| Route | Screen | File | Figma node | Data source |
+| --- | --- | --- | --- | --- |
+| `/` | Landing | `src/screens/Landing/LandingScreen.tsx` | not recorded | `GET /api/me/`, `POST /api/trees/` |
+| `/sign-in` | Sign in | `src/screens/SignIn/SignInScreen.tsx` | `73:2` | allauth Google popup, `GET /api/me/` |
+| `/my-trees` (sign-in required) | My Trees dashboard | `src/screens/MyTrees/MyTreesScreen.tsx` | none (built from the tree workspace's card/toolbar styles) | `GET /api/trees/` (includes `is_owner`, `member_count`) |
+| `/family-tree/:treeId` (sign-in required) | Tree workspace | `src/screens/FamilyTree/FamilyTreeScreen.tsx` | tree canvas (`29:1967`, `21:160`) | `GET /api/trees/:id/`, `/members/`, `/relationships/` |
+| `/invite/:token` (sign-in required) | Join a tree | `src/screens/Invite/InviteScreen.tsx` | none | `GET`/`POST /api/invite/:token/` |
+| `/family-tree?tree=<id>` | redirect → `/family-tree/<id>` (old links) | `src/AppRoutes.tsx` | — | — |
 
-| Section | Used by | Figma origin | Backend |
-| --- | --- | --- | --- |
-| `Landing/sections/LandingHeaderSection` | Landing | Landing header | `POST /api/logout/` (Sign Out) |
-| `Landing/sections/LandingHeroSection` | Landing | Landing | — |
-| `Landing/sections/CreateTreeModalSection` | Landing | Create Your Tree dialog | `POST /api/trees/` |
-| `SignIn/sections/BrandHeaderSection` | Sign in | `73:2` | — |
-| `SignIn/sections/GoogleSignInSection` | Sign in | `73:2` | `/accounts/google/login/` popup, `GET /api/me/` |
-| `FamilyTree/sections/AppHeaderSection` | Family tree | Family tree header | `POST /api/logout/` |
-| `FamilyTree/sections/FamilyTreeToolbarSection` | Family tree | Family tree toolbar | tree name / member count from API |
-| `FamilyTree/sections/FamilyTreeCanvasSection` | Family tree | Bennett tree canvas (`29:1967`, `21:160`) | members + relationships |
-| `FamilyTree/sections/MemberDetailsDialogSection` | Family tree | "Person details" (`29:1967`) | `GET /api/trees/:id/members/:id/` |
-| `FamilyTree/sections/ChangeRequestModalSection` | Family tree | "Request a change" (`12:18`) | `POST /api/trees/:id/suggestions/` |
+Shared components (`src/components/`): `AppHeader` (logo → Home, Home / My Trees
+nav, account menu), `CreateTreeModal` (landing + My Trees), `Dialog` and
+`ConfirmDialog` (modal shell matching the "Request a change" modal `12:18`).
+
+| Tree workspace section | Who sees it | Backend |
+| --- | --- | --- |
+| `FamilyTreeToolbarSection` | everyone; Owner: Add Member, Add Relationship, Review Requests, Invite Link. Collaborator: Request Change | tree name/role/count; tree switcher uses `GET /api/trees/` |
+| `FamilyTreeCanvasSection` + `familyTreeLayout.ts` | everyone | members + relationships |
+| `MemberDetailsDialogSection` | everyone; Owner also gets Edit / Add relationship / Delete / Remove relationship | `GET /members/:id/` |
+| `MemberFormDialog` | Owner | `POST /members/`, `PATCH /members/:id/` |
+| `RelationshipFormDialog` | Owner | `POST /relationships/` |
+| `ConfirmDialog` (delete person / relationship) | Owner | `DELETE /members/:id/`, `DELETE /relationships/:id/` |
+| `ReviewRequestsDialog` | Owner | `GET /suggestions/`, `POST /suggestions/:id/approve|reject/` |
+| `InviteDialog` | Owner | `POST /invitations/` |
+| `ChangeRequestModalSection` | Collaborator | `POST /suggestions/` (`ADD_MEMBER`, `ADD_RELATIONSHIP`) |
+
+Django enforces every role rule on its own (`trees/permissions.py`): writes to
+members/relationships/invitations are Owner-only (403 for Collaborators),
+suggestions can only be submitted by Collaborators and reviewed by the Owner,
+and users outside a tree get 404 for all of its endpoints.
+
+## How the visualizer works
+
+`familyTreeLayout.ts` is pure (no React) and unit-tested:
+
+1. **Generations.** Parent/adoptive-parent links put the child at least one row
+   below every parent; spouse and sibling links put both people on the same row.
+   The rules are relaxed until nothing moves (capped, so bad data can't loop).
+2. **Rows.** Each row is split into blocks: a person plus everyone they're
+   married to on that row (so couples, and people married more than once, stay
+   side by side). A block wants to sit under its members' parents; blocks are
+   then pushed apart so cards never overlap, and the row is shifted to best fit.
+3. **Connectors.** Rounded orthogonal paths. When a child's two parents are a
+   couple side by side, one line drops from their marriage marker; otherwise
+   each parent connects separately (single parents, unmarried co-parents).
+   Adoptive links are dashed. Explicit siblings who share no parent in the
+   tree get a dotted bracket. Nothing depends on gender.
+
+Node identity and React keys are database ids. The canvas pans (drag, wheel,
+arrow keys), zooms (buttons, Ctrl/⌘ + wheel or pinch, +/-) and fits to screen
+(button or 0). It fits once when a tree first has members; after edits it keeps
+the current view.
 
 ## Authentication
 
@@ -67,10 +100,13 @@ recorded" means the code never carried one, so none is guessed here.
 | `RootsJamesBennettScreen/*` | none | nothing | Another Bennett tree + profile/documents panel | Upload input never uploaded | Hardcoded | REMOVE | Same as above; nothing else reusable |
 | `static/img/*` (79 files) | — | only the removed screens | Portraits, ~33 copies of one heart icon, Figma vector exports | — | — | REMOVE | Unreferenced after the cleanup |
 
-## Known gaps (not built in this cleanup)
+## Known gaps
 
-- **Invite Link** and the **tree options** chevron in the toolbar have no
-  handler yet (backend: `POST /api/trees/:id/invitations/`).
-- Tree Owners can't add members from the UI. The backend's
-  `POST /api/trees/:id/members/` exists; change requests are Collaborator-only.
-- No screen yet for accepting an invitation link or reviewing suggestions.
+- Collaborators can request **Add member** and **Add relationship**. The backend
+  also supports **Update member** and **Add document** requests (and the review
+  screen displays them), but there is no form for them yet.
+- No photo or document upload UI yet (endpoints exist).
+- Deleting a member also deletes suggestions that targeted them, including the
+  approved one that created them (`SuggestRequest.target_member` is CASCADE).
+- Pending invitation links can't be listed or revoked from the UI yet
+  (`GET /invitations/`, `DELETE /invitations/:id/` exist).

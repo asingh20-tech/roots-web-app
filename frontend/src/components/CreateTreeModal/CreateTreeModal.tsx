@@ -10,20 +10,21 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { AuthRedirectState } from "../../../../auth/AuthProvider";
-import { firstErrorMessage } from "../../../../services/api";
-import { ApiError, FamilyTree, createTree } from "../../../../services/trees";
+import { AuthRedirectState } from "../../auth/AuthProvider";
+import { firstErrorMessage } from "../../services/api";
+import { ApiError, FamilyTree, createTree } from "../../services/trees";
 
 // Matches FamilyTree.name max_length in backend/trees/models.py.
 const NAME_MAX_LENGTH = 100;
-const signInState: AuthRedirectState = { from: "/", intent: "create-tree" };
 // Keep in sync with the closed-state transition in tailwind.css.
 const EXIT_DURATION_MS = 160;
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-type CreateTreeModalSectionProps = {
+type CreateTreeModalProps = {
+  // Where to come back to if the session expired and the user must sign in.
+  signInReturnPath?: string;
   open: boolean;
   onClose: () => void;
   onCreated: (tree: FamilyTree) => void;
@@ -37,12 +38,13 @@ type SubmitError =
   | { kind: "general"; message: string }
   | null;
 
-export const CreateTreeModalSection = ({
+export const CreateTreeModal = ({
+  signInReturnPath = "/",
   open,
   onClose,
   onCreated,
   returnFocusRef: returnFocusTarget,
-}: CreateTreeModalSectionProps): JSX.Element | null => {
+}: CreateTreeModalProps): JSX.Element | null => {
   // `mounted` keeps the dialog in the DOM long enough to play its exit;
   // `visible` drives the data-state the CSS transitions key off.
   const [mounted, setMounted] = useState(open);
@@ -96,6 +98,7 @@ export const CreateTreeModalSection = ({
       state={visible ? "open" : "closed"}
       onClose={onClose}
       onCreated={onCreated}
+      signInReturnPath={signInReturnPath}
     />,
     document.body,
   );
@@ -105,10 +108,12 @@ const CreateTreeDialog = ({
   state,
   onClose,
   onCreated,
+  signInReturnPath,
 }: {
   state: "open" | "closed";
   onClose: () => void;
   onCreated: (tree: FamilyTree) => void;
+  signInReturnPath: string;
 }): JSX.Element => {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -318,7 +323,7 @@ const CreateTreeDialog = ({
                     You need to be signed in to create a tree.{" "}
                     <Link
                       to="/sign-in"
-                      state={signInState}
+                      state={{ from: signInReturnPath, intent: "create-tree" } satisfies AuthRedirectState}
                       className="font-semibold underline underline-offset-2"
                     >
                       Sign in
