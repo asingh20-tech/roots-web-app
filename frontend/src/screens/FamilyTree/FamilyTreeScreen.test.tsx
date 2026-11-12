@@ -267,8 +267,8 @@ describe("Tree Owner", () => {
     expect(
       api.db.relationships[11].some(
         (relationship) =>
-          relationship.from_member === 3 ||
-          relationship.to_member === 3
+          relationship.member1 === 3 ||
+          relationship.member2 === 3
       )
     ).toBe(false);
   });
