@@ -115,6 +115,32 @@ describe("Family tree routing", () => {
 });
 
 describe("Tree Owner", () => {
+  it("rejects a death date earlier than the birth date", async () => {
+    const api = fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree/11");
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Add the first member",
+      })
+    );
+    const form = dialog("Add a family member");
+    fill("First name", "John", form);
+    fill("Last name", "Smith", form);
+    fill("Birth date (optional)", "2000-01-01", form);
+    fill("Death date (optional)", "1990-01-01", form);
+    fireEvent.click(
+      within(form).getByRole("button", {
+        name: "Add member",
+      })
+    );
+    expect(
+      within(form).getByText(
+        "Death date cannot be before the birth date."
+      )
+    ).toBeInTheDocument();
+    expect(api.writes()).toHaveLength(0);
+  });
+
   it("adds the first member from the empty state and sees the node", async () => {
     const api = fakeTreeApi({ trees: [ownedTree] });
     renderAt("/family-tree/11");
