@@ -210,7 +210,7 @@ describe("Tree Owner", () => {
   });
 
   it("explains a duplicate relationship rejected by the server", async () => {
-    fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
+    const api = fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
     renderAt("/family-tree/11");
     fireEvent.click(await screen.findByRole("button", { name: "Add Relationship" }));
     const form = dialog("Add a relationship");
@@ -220,7 +220,9 @@ describe("Tree Owner", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Add relationship" }));
     expect(await within(form).findByRole("alert")).toHaveTextContent(
       "These two people already have this relationship.",
-    );
+      );
+    expect(api.db.relationships[11]).toHaveLength(3);
+    expect(api.writes().filter((call) => call.method === "POST")).toHaveLength(1);
   });
 
   it("edits a member and the card updates", async () => {
@@ -257,6 +259,18 @@ describe("Tree Owner", () => {
     expect(api.writes()).toEqual([{ method: "DELETE", url: "/api/trees/11/members/3/", body: undefined }]);
     // Their parent–child links went with them.
     expect(document.querySelectorAll('[data-edge="parent"]')).toHaveLength(0);
+    expect(api.db.members[11]).toHaveLength(2);     //deleted member and their relationships are removed with them
+    expect(
+      api.db.members[11].some((member) => member.id === 3)
+    ).toBe(false);
+    expect(api.db.relationships[11]).toHaveLength(1);
+    expect(
+      api.db.relationships[11].some(
+        (relationship) =>
+          relationship.from_member === 3 ||
+          relationship.to_member === 3
+      )
+    ).toBe(false);
   });
 
   it("removes a relationship with confirmation", async () => {
@@ -284,7 +298,7 @@ describe("Tree Owner", () => {
       created_at: "2026-11-09T00:00:00Z",
       reviewed_at: null,
     });
-    fakeTreeApi({ trees: [ownedTree], suggestions: { 11: [request(50, "Dee"), request(51, "Eve")] } });
+    const api = fakeTreeApi({ trees: [ownedTree], suggestions: { 11: [request(50, "Dee"), request(51, "Eve")] } });
     renderAt("/family-tree/11");
 
     fireEvent.click(await screen.findByRole("button", { name: "Review Requests (2 waiting)" }));
@@ -301,6 +315,17 @@ describe("Tree Owner", () => {
     expect(card("Dee Lane")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "View details for Eve Lane" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review Requests" })).toBeInTheDocument();
+    expect(api.db.members[11]).toHaveLength(1);     //approved requests change the database + rejected ones do not
+    expect(
+      api.db.members[11].some(
+        (member) => member.first_name === "Dee"
+      )
+    ).toBe(true);
+    expect(
+      api.db.members[11].some(
+        (member) => member.first_name === "Eve"
+      )
+    ).toBe(false);
   });
 
   it("creates an invitation link", async () => {
@@ -313,6 +338,33 @@ describe("Tree Owner", () => {
 });
 
 describe("Collaborator", () => {
+  it("does not show direct member editing controls to collaborators", async () => { //collaborators cannot edit family tree members directly
+    const api = fakeTreeApi({
+      trees: [joinedTree],
+      members: {
+        [joinedTree.id]: [
+          makeMember(1, "Test", "Person"),
+        ],
+      },
+    });
+    renderAt("/family-tree/22");
+    const memberCard = await screen.findByRole("button", {    //the collaborator can view the family member
+      name: "View details for Test Person",
+    });
+    expect(memberCard).toBeInTheDocument();
+    fireEvent.click(memberCard); //open the member details
+    const details = await screen.findByRole("dialog", {
+      name: "Test Person · Person details",
+    });
+    expect(     //editing and deletion must not be available for them
+      within(details).queryByRole("button", { name: "Edit details" })
+    ).not.toBeInTheDocument();
+    expect(
+      within(details).queryByRole("button", { name: "Delete person" })
+    ).not.toBeInTheDocument();
+    expect(api.writes()).toHaveLength(0);  //viewing the member must not modify database
+  });
+  
   it("can view and request changes but has no direct editing controls", async () => {
     const api = fakeTreeApi({
       trees: [joinedTree],
