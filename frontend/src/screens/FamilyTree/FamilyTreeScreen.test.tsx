@@ -147,6 +147,11 @@ describe("Family tree routing", () => {
       },
     });
     renderAt("/family-tree/11");
+    expect( //confirm orignal tree member appears first
+      await screen.findByRole("button", { 
+        name: "View details for Ada Lane",
+      })
+      ).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "Switch family tree" }));
     fireEvent.click(await screen.findByRole("link", { name: /Other Family/ }));
     expect(await screen.findByRole("heading", { name: "Other Family" })).toBeInTheDocument();
@@ -190,6 +195,59 @@ describe("Tree Owner", () => {
     ).toBeInTheDocument();
     expect(api.writes()).toHaveLength(0);
   });
+
+  
+it("handles a server error when adding a family member", async () => {   //simulate a server failure without changing the real database
+  const api = fakeTreeApi({ trees: [ownedTree] });
+  const originalFetch = api.fetchMock;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (
+        url === "/api/trees/11/members/" &&
+        method === "POST"
+      ) {
+        return new Response(
+          JSON.stringify({
+            detail: "Server error. Please try again.",
+          }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+      return originalFetch(input, init);
+    })
+  );
+  renderAt("/family-tree/11"); //open the add member form
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Add the first member",
+    })
+  );
+  const form = dialog("Add a family member"); //enter valid member info
+  fill("First name", "John", form);
+  fill("Last name", "Smith", form); //submit form
+  fireEvent.click(
+    within(form).getByRole("button", {
+      name: "Add member",
+    })
+  );   //the application should display an error
+  expect(
+    await within(form).findByRole("alert")
+  ).toHaveTextContent("Server error. Please try again.");  //the form should remain open
+  expect(form).toBeInTheDocument();
+  expect( //the member shouldnt be added
+    screen.queryByRole("button", {
+      name: "View details for John Smith",
+    })
+  ).not.toBeInTheDocument();
+  expect(api.db.members[11] ?? []).toHaveLength(0);  //the fake database should not be changed 
+});
+
 
   it("adds the first member from the empty state and sees the node", async () => {
     const api = fakeTreeApi({ trees: [ownedTree] });
