@@ -65,6 +65,40 @@ afterEach(() => {
 });
 
 describe("Family tree routing", () => {
+  it("rejects an invalid invitation token", async () => {   //invalid invitation cannot be accepted
+    const api = fakeTreeApi({ trees: [ownedTree] });
+    const originalFetch = api.fetchMock;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("invalid-token")) {
+          return new Response(
+            JSON.stringify({ detail: "Invitation not found." }),
+            {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+        return originalFetch(input, init);
+      })
+    );
+    renderAt("/invite/invalid-token");
+    expect(
+      await screen.findByRole("heading", {
+        name: "Invitation unavailable",
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Ask the Tree Owner to send you a new link.")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Join Tree" })
+    ).not.toBeInTheDocument();
+    expect(api.writes()).toHaveLength(0);
+  });
+
   it("redirects to sign-in without a session", async () => {
     fakeTreeApi({ signedIn: false, trees: [ownedTree] });
     renderAt("/family-tree/11");
@@ -105,12 +139,28 @@ describe("Family tree routing", () => {
   });
 
   it("switches trees from the tree menu", async () => {
-    fakeTreeApi({ trees: [ownedTree, joinedTree] });
+    fakeTreeApi({
+      trees: [ownedTree, joinedTree],
+      members: {
+        11: [makeMember(1, "Ada", "Lane")],
+        22: [makeMember(2, "Test", "Person")],
+      },
+    });
     renderAt("/family-tree/11");
     fireEvent.click(await screen.findByRole("button", { name: "Switch family tree" }));
     fireEvent.click(await screen.findByRole("link", { name: /Other Family/ }));
     expect(await screen.findByRole("heading", { name: "Other Family" })).toBeInTheDocument();
     expect(screen.getByText("Collaborator")).toBeInTheDocument();
+    expect(     //wwitching trees loads only the selected trees members
+      await screen.findByRole("button", {
+        name: "View details for Test Person",
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "View details for Ada Lane",
+      })
+    ).not.toBeInTheDocument();
   });
 });
 
