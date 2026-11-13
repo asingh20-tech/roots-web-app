@@ -65,6 +65,40 @@ afterEach(() => {
 });
 
 describe("Family tree routing", () => {
+  it("rejects an invalid invitation token", async () => {   //invalid invitation cannot be accepted
+    const api = fakeTreeApi({ trees: [ownedTree] });
+    const originalFetch = api.fetchMock;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("invalid-token")) {
+          return new Response(
+            JSON.stringify({ detail: "Invitation not found." }),
+            {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+        return originalFetch(input, init);
+      })
+    );
+    renderAt("/invite/invalid-token");
+    expect(
+      await screen.findByRole("heading", {
+        name: "Invitation unavailable",
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Ask the Tree Owner to send you a new link.")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Join Tree" })
+    ).not.toBeInTheDocument();
+    expect(api.writes()).toHaveLength(0);
+  });
+
   it("redirects to sign-in without a session", async () => {
     fakeTreeApi({ signedIn: false, trees: [ownedTree] });
     renderAt("/family-tree/11");
@@ -105,16 +139,116 @@ describe("Family tree routing", () => {
   });
 
   it("switches trees from the tree menu", async () => {
-    fakeTreeApi({ trees: [ownedTree, joinedTree] });
+    fakeTreeApi({
+      trees: [ownedTree, joinedTree],
+      members: {
+        11: [makeMember(1, "Ada", "Lane")],
+        22: [makeMember(2, "Test", "Person")],
+      },
+    });
     renderAt("/family-tree/11");
+    expect( //confirm orignal tree member appears first
+      await screen.findByRole("button", { 
+        name: "View details for Ada Lane",
+      })
+      ).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "Switch family tree" }));
     fireEvent.click(await screen.findByRole("link", { name: /Other Family/ }));
     expect(await screen.findByRole("heading", { name: "Other Family" })).toBeInTheDocument();
     expect(screen.getByText("Collaborator")).toBeInTheDocument();
+    expect(     //wwitching trees loads only the selected trees members
+      await screen.findByRole("button", {
+        name: "View details for Test Person",
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "View details for Ada Lane",
+      })
+    ).not.toBeInTheDocument();
   });
 });
 
 describe("Tree Owner", () => {
+  it("rejects a death date earlier than the birth date", async () => {
+    const api = fakeTreeApi({ trees: [ownedTree] });
+    renderAt("/family-tree/11");
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Add the first member",
+      })
+    );
+    const form = dialog("Add a family member");
+    fill("First name", "John", form);
+    fill("Last name", "Smith", form);
+    fill("Birth date (optional)", "2000-01-01", form);
+    fill("Death date (optional)", "1990-01-01", form);
+    fireEvent.click(
+      within(form).getByRole("button", {
+        name: "Add member",
+      })
+    );
+    expect(
+      within(form).getByText(
+        "Death date cannot be before the birth date."
+      )
+    ).toBeInTheDocument();
+    expect(api.writes()).toHaveLength(0);
+  });
+
+  
+it("handles a server error when adding a family member", async () => {   //simulate a server failure without changing the real database
+  const api = fakeTreeApi({ trees: [ownedTree] });
+  const originalFetch = api.fetchMock;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (
+        url === "/api/trees/11/members/" &&
+        method === "POST"
+      ) {
+        return new Response(
+          JSON.stringify({
+            detail: "Server error. Please try again.",
+          }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+      return originalFetch(input, init);
+    })
+  );
+  renderAt("/family-tree/11"); //open the add member form
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Add the first member",
+    })
+  );
+  const form = dialog("Add a family member"); //enter valid member info
+  fill("First name", "John", form);
+  fill("Last name", "Smith", form); //submit form
+  fireEvent.click(
+    within(form).getByRole("button", {
+      name: "Add member",
+    })
+  );   //the application should display an error
+  expect(
+    await within(form).findByRole("alert")
+  ).toHaveTextContent("Server error. Please try again.");  //the form should remain open
+  expect(form).toBeInTheDocument();
+  expect( //the member shouldnt be added
+    screen.queryByRole("button", {
+      name: "View details for John Smith",
+    })
+  ).not.toBeInTheDocument();
+  expect(api.db.members[11] ?? []).toHaveLength(0);  //the fake database should not be changed 
+});
+
+
   it("adds the first member from the empty state and sees the node", async () => {
     const api = fakeTreeApi({ trees: [ownedTree] });
     renderAt("/family-tree/11");
@@ -184,7 +318,7 @@ describe("Tree Owner", () => {
   });
 
   it("explains a duplicate relationship rejected by the server", async () => {
-    fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
+    const api = fakeTreeApi({ trees: [ownedTree], members: lane(), relationships: laneRelationships() });
     renderAt("/family-tree/11");
     fireEvent.click(await screen.findByRole("button", { name: "Add Relationship" }));
     const form = dialog("Add a relationship");
@@ -194,7 +328,9 @@ describe("Tree Owner", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Add relationship" }));
     expect(await within(form).findByRole("alert")).toHaveTextContent(
       "These two people already have this relationship.",
-    );
+      );
+    expect(api.db.relationships[11]).toHaveLength(3);
+    expect(api.writes().filter((call) => call.method === "POST")).toHaveLength(1);
   });
 
   it("edits a member and the card updates", async () => {
@@ -231,6 +367,18 @@ describe("Tree Owner", () => {
     expect(api.writes()).toEqual([{ method: "DELETE", url: "/api/trees/11/members/3/", body: undefined }]);
     // Their parent–child links went with them.
     expect(document.querySelectorAll('[data-edge="parent"]')).toHaveLength(0);
+    expect(api.db.members[11]).toHaveLength(2);     //deleted member and their relationships are removed with them
+    expect(
+      api.db.members[11].some((member) => member.id === 3)
+    ).toBe(false);
+    expect(api.db.relationships[11]).toHaveLength(1);
+    expect(
+      api.db.relationships[11].some(
+        (relationship) =>
+          relationship.member1 === 3 ||
+          relationship.member2 === 3
+      )
+    ).toBe(false);
   });
 
   it("removes a relationship with confirmation", async () => {
@@ -258,7 +406,7 @@ describe("Tree Owner", () => {
       created_at: "2026-11-09T00:00:00Z",
       reviewed_at: null,
     });
-    fakeTreeApi({ trees: [ownedTree], suggestions: { 11: [request(50, "Dee"), request(51, "Eve")] } });
+    const api = fakeTreeApi({ trees: [ownedTree], suggestions: { 11: [request(50, "Dee"), request(51, "Eve")] } });
     renderAt("/family-tree/11");
 
     fireEvent.click(await screen.findByRole("button", { name: "Review Requests (2 waiting)" }));
@@ -275,6 +423,17 @@ describe("Tree Owner", () => {
     expect(card("Dee Lane")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "View details for Eve Lane" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review Requests" })).toBeInTheDocument();
+    expect(api.db.members[11]).toHaveLength(1);     //approved requests change the database + rejected ones do not
+    expect(
+      api.db.members[11].some(
+        (member) => member.first_name === "Dee"
+      )
+    ).toBe(true);
+    expect(
+      api.db.members[11].some(
+        (member) => member.first_name === "Eve"
+      )
+    ).toBe(false);
   });
 
   it("creates an invitation link", async () => {
@@ -287,6 +446,33 @@ describe("Tree Owner", () => {
 });
 
 describe("Collaborator", () => {
+  it("does not show direct member editing controls to collaborators", async () => { //collaborators cannot edit family tree members directly
+    const api = fakeTreeApi({
+      trees: [joinedTree],
+      members: {
+        [joinedTree.id]: [
+          makeMember(1, "Test", "Person"),
+        ],
+      },
+    });
+    renderAt("/family-tree/22");
+    const memberCard = await screen.findByRole("button", {    //the collaborator can view the family member
+      name: "View details for Test Person",
+    });
+    expect(memberCard).toBeInTheDocument();
+    fireEvent.click(memberCard); //open the member details
+    const details = await screen.findByRole("dialog", {
+      name: "Test Person · Person details",
+    });
+    expect(     //editing and deletion must not be available for them
+      within(details).queryByRole("button", { name: "Edit details" })
+    ).not.toBeInTheDocument();
+    expect(
+      within(details).queryByRole("button", { name: "Delete person" })
+    ).not.toBeInTheDocument();
+    expect(api.writes()).toHaveLength(0);  //viewing the member must not modify database
+  });
+  
   it("can view and request changes but has no direct editing controls", async () => {
     const api = fakeTreeApi({
       trees: [joinedTree],
