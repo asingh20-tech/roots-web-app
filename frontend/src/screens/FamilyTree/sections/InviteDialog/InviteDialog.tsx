@@ -20,6 +20,9 @@ import {
   revokeInvitation,
 } from "../../../../services/trees";
 
+import { InviteQrPreview } from "./InviteQrPreview";
+import { invitationQrPng, invitationVisualPng, downloadQr } from "./inviteQr";
+
 type InviteDialogProps = {
   treeId: number;
   treeName: string;
@@ -52,6 +55,12 @@ export const InviteDialog = ({ treeId, treeName, onClose }: InviteDialogProps): 
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const busyRef = useRef(false);
+  const artworks = useRef(new Map<number, string>());
+  const pngs = useRef(new Map<number, Promise<Blob>>());
+  const liveLinks = useRef<Invitation[]>([]);
+  const mounted = useRef(true);
+  const [qrMessage, setQrMessage] = useState("");
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; pngs.current.clear(); artworks.current.clear(); liveLinks.current = []; }; }, []);
 
   const [links, setLinks] = useState<Invitation[] | null>(null);
   const [linksError, setLinksError] = useState(false);
@@ -60,11 +69,56 @@ export const InviteDialog = ({ treeId, treeName, onClose }: InviteDialogProps): 
   const [revokeError, setRevokeError] = useState("");
   const [announce, setAnnounce] = useState("");
 
+  liveLinks.current = links ?? [];
+  useEffect(() => {
+    const purge = () => {
+      setLinks(current => current?.map(link => {
+        if (invitationStatus(link) === "active") return link;
+        pngs.current.delete(link.id); artworks.current.delete(link.id);
+        return link.url ? { ...link, url: undefined } : link;
+      }) ?? null);
+      setInvitation(current => current && invitationStatus(current) !== "active" ? null : current);
+    };
+    const timer = setInterval(purge, 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const shareQr = async (id: number, download = false) => {
+    const link = liveLinks.current.find(item => item.id === id);
+    if (!link?.url || invitationStatus(link) !== "active") return;
+    setQrMessage("");
+    const valid = () => mounted.current && liveLinks.current.some(item => item.id === id && invitationStatus(item) === "active" && item.url === link.url);
+    try {
+      if (!download && (!navigator.clipboard?.write || typeof ClipboardItem === "undefined")) throw new Error();
+      let png = pngs.current.get(id);
+      if (!png) { png = artworks.current.has(id) ? invitationVisualPng(link.url, artworks.current.get(id)!) : invitationQrPng(link.url); pngs.current.set(id, png); }
+      if (download) {
+        const blob = await png;
+        if (valid()) downloadQr(blob, id);
+      } else {
+        // Start the write in the user gesture, including Safari's promise-valued item.
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': png.then(blob => {
+          if (!valid()) throw new Error();
+          return blob;
+        }) })]);
+        if (valid()) setQrMessage("QR code copied.");
+      }
+    } catch {
+      pngs.current.delete(id);
+      if (valid()) setQrMessage(download ? "Couldn't generate this QR. Please copy the link." : "Image copying is unavailable. Use Download QR instead.");
+    }
+  };
+
   const loadLinks = useCallback(
     (signal?: AbortSignal) => {
       setLinksError(false);
       listInvitations(treeId, signal)
-        .then(setLinks)
+        .then(incoming => setLinks(current => {
+          const known = new Map((current ?? []).map(link => [link.id, link]));
+          const ids = new Set(incoming.map(link => link.id));
+          return [...(current ?? []).filter(link => !ids.has(link.id)), ...incoming.map(link => ({
+            ...link, url: invitationStatus(link) === "active" ? known.get(link.id)?.url : undefined,
+          }))];
+        }))
         .catch((err: unknown) => {
           if ((err as Error).name !== "AbortError") setLinksError(true);
         });
@@ -85,6 +139,7 @@ export const InviteDialog = ({ treeId, treeName, onClose }: InviteDialogProps): 
     setError("");
     try {
       const created = await createInvitation(treeId);
+      if (!mounted.current) return;
       setInvitation(created);
       setCopied(false);
       setLinks((current) => [created, ...(current ?? [])]);
@@ -99,7 +154,7 @@ export const InviteDialog = ({ treeId, treeName, onClose }: InviteDialogProps): 
   };
 
   const copy = async () => {
-    if (!invitation?.url) return;
+    if (!invitation?.url || invitationStatus(invitation) !== "active") return;
     try {
       await navigator.clipboard.writeText(invitation.url);
       setCopied(true);
@@ -117,9 +172,10 @@ export const InviteDialog = ({ treeId, treeName, onClose }: InviteDialogProps): 
       const now = new Date().toISOString();
       setLinks((current) =>
         (current ?? []).map((item) =>
-          item.id === link.id ? { ...item, is_active: false, is_valid: false, revoked_at: now } : item,
+          item.id === link.id ? { ...item, url: undefined, is_active: false, is_valid: false, revoked_at: now } : item,
         ),
       );
+      pngs.current.delete(link.id); artworks.current.delete(link.id);
       if (invitation?.id === link.id) setInvitation(null);
       setConfirmRevoke(null);
       setAnnounce("Link revoked. Nobody new can join with it.");
@@ -144,6 +200,13 @@ export const InviteDialog = ({ treeId, treeName, onClose }: InviteDialogProps): 
       busy={busy}
       size="md"
     >
+      <InviteQrPreview key={invitation?.id ?? "demo"} url={invitation?.url} onArtwork={(url, image) => {
+        if (invitation?.url === url && invitationStatus(invitation) === "active") {
+          artworks.current.set(invitation.id, image);
+          pngs.current.delete(invitation.id);
+        }
+      }} />
+      {qrMessage && <p role="status" className="text-sm text-[#355b43]">{qrMessage}</p>}
       {error && (
         <p role="alert" className={formErrorClass}>
           {error}
@@ -164,6 +227,11 @@ export const InviteDialog = ({ treeId, treeName, onClose }: InviteDialogProps): 
             Expires {new Date(invitation.expires_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}.
             This link is only shown now, so copy it before closing. Several people can use it.
           </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={smallButton} onClick={() => void shareQr(invitation.id)}>Copy QR code</button>
+            <button type="button" className={smallButton} onClick={() => void shareQr(invitation.id, true)}>Download QR</button>
+            <button type="button" className={smallButton} disabled={busy} onClick={() => void create()}>Create another link</button>
+          </div>
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button type="button" className={secondaryButtonClass} onClick={onClose}>
               Done
@@ -252,6 +320,15 @@ export const InviteDialog = ({ treeId, treeName, onClose }: InviteDialogProps): 
                       {joined} {joined === 1 ? "person" : "people"} joined
                     </span>
                   </div>
+                  {linkStatus === "active" && (link.url ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className={smallButton} onClick={() => void shareQr(link.id)}>Copy QR code</button>
+                      <button type="button" className={smallButton} onClick={() => void shareQr(link.id, true)}>Download QR</button>
+                    </div>
+                  ) : <div className="text-xs text-[#7b8177]">
+                    <p>The QR can only be saved when the link is created. Its original URL is no longer available.</p>
+                    <button type="button" className={smallButton} disabled={busy} onClick={() => void create()}>Create a new link</button>
+                  </div>)}
                   {linkStatus === "active" &&
                     (confirmRevoke === link.id ? (
                       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Confirm revoking this link">

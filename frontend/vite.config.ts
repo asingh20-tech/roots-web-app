@@ -5,6 +5,7 @@ import { defineConfig } from "vite";
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
   plugins: [react(), mode === "development" && screenGraphPlugin()],
+  build: { rollupOptions: { input: { main: "index.html", inviteQr: "invite-qr.html" } } },
   publicDir: "./static",
   base: "./",
   //proxy api request to the backend (Django)
