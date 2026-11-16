@@ -1,5 +1,6 @@
 import { RefObject } from "react";
 import { Link } from "react-router-dom";
+import { GenerativeTree } from "../../../../components/ui/generative-tree";
 
 type LandingHeroSectionProps = {
   onCreateTree: () => void;
@@ -48,9 +49,15 @@ export const LandingHeroSection = ({
   return (
     <main
       aria-labelledby="landing-heading"
-      className="flex flex-1 items-center justify-center bg-roots-canvas px-6 py-16 sm:px-10 sm:py-20"
+      className="relative isolate flex flex-1 items-center justify-center overflow-hidden bg-roots-canvas lg:min-h-[calc(min(70vh,680px)+96px)] px-6 pb-64 pt-16 sm:px-10 sm:pb-[304px] sm:pt-20 lg:py-20"
     >
-      <div className="flex w-full max-w-[680px] flex-col items-center text-center">
+      <div aria-hidden="true" className="pointer-events-auto absolute bottom-0 left-0 h-64 w-1/2 sm:h-[304px] lg:bottom-0 lg:h-[calc(min(70vh,680px)+48px)] lg:w-1/2">
+        <GenerativeTree anchorX={0.24} speed={0.8} particleAmount={0.45} />
+      </div>
+      <div aria-hidden="true" className="pointer-events-auto absolute bottom-0 right-0 h-64 w-1/2 sm:h-[304px] lg:bottom-0 lg:h-[calc(min(70vh,680px)+48px)] lg:w-1/2">
+        <GenerativeTree anchorX={0.76} speed={0.95} particleAmount={0.45} />
+      </div>
+      <div className="pointer-events-none relative z-10 flex w-full max-w-[680px] flex-col items-center text-center lg:max-w-[52%] xl:max-w-[680px]">
         <span
           aria-hidden="true"
           className="roots-enter mb-8 h-px w-12 bg-roots-forest/50"
@@ -76,7 +83,7 @@ export const LandingHeroSection = ({
         </p>
 
         <div
-          className="roots-enter mt-10 flex w-full max-w-[360px] flex-col gap-3 sm:w-auto sm:max-w-none sm:flex-row sm:gap-4"
+          className="pointer-events-auto roots-enter mt-10 flex w-full max-w-[360px] flex-col gap-3 sm:w-auto sm:max-w-none sm:flex-row sm:gap-4"
           style={{ animationDelay: "140ms" }}
         >
           <button
