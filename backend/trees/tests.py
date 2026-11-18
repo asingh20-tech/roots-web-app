@@ -992,3 +992,40 @@ class GoogleLoginPopupTests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 302)
         self.assertIn("login", response["Location"])
+
+
+class InvitationQrFlowTests(APITestCase):
+    """QRs use the existing token endpoint; no alternate access mechanism."""
+    def setUp(self):
+        self.owner = User.objects.create_user('qr-owner', email='qr-owner@example.com')
+        self.people = [User.objects.create_user(f'qr-{i}', email=f'qr-{i}@example.com') for i in range(3)]
+        self.tree = FamilyTree.objects.create(name='QR test', owner=self.owner)
+        self.manage = f'/api/trees/{self.tree.pk}/invitations/'
+        self.client.force_authenticate(self.owner)
+        self.created = self.client.post(self.manage).data
+        from urllib.parse import urlsplit
+        self.accept = '/api' + urlsplit(self.created['url']).path + '/'
+
+    def test_reusable_collaborator_redemption_and_revocation_preserve_existing_access(self):
+        for person in self.people[:2]:
+            self.client.force_authenticate(person)
+            response = self.client.post(self.accept)
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(response.data['role'], 'collaborator')
+            self.assertTrue(self.tree.can_view(person))
+        self.client.force_authenticate(self.owner)
+        self.assertNotIn('url', self.client.get(self.manage).data[0])
+        self.assertEqual(self.client.delete(f"{self.manage}{self.created['id']}/").status_code, 204)
+        self.client.force_authenticate(self.people[2])
+        self.assertEqual(self.client.post(self.accept).status_code, 404)
+        self.assertFalse(self.tree.can_view(self.people[2]))
+        self.assertTrue(self.tree.can_view(self.people[0]))
+
+    def test_expired_invalid_and_non_owner_management(self):
+        self.client.force_authenticate(self.people[0])
+        self.assertEqual(self.client.post(self.manage).status_code, 404)
+        self.assertEqual(self.client.delete(f"{self.manage}{self.created['id']}/").status_code, 404)
+        Invitation.objects.filter(pk=self.created['id']).update(expires_at=timezone.now() - timedelta(seconds=1))
+        self.assertEqual(self.client.post(self.accept).status_code, 404)
+        self.assertEqual(self.client.post('/api/invite/invalid/').status_code, 404)
+        self.assertFalse(self.tree.can_view(self.people[0]))
