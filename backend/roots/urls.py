@@ -4,8 +4,9 @@ import json
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponse
-from django.urls import include, path
+from django.db import transaction
+from django.http import FileResponse, Http404, HttpResponse
+from django.urls import include, path, re_path
 from django.views.decorators.clickjacking import xframe_options_deny
 
 from accounts.views import csrf, logout_view, me
@@ -57,7 +58,23 @@ def popup_complete(request):
     """)
 
 
+@transaction.non_atomic_requests
+def healthz(request):
+    """Uptime / platform health check (SA-4). No auth, no DB."""
+    return HttpResponse("ok", content_type="text/plain")
+
+
+@transaction.non_atomic_requests
+def spa_index(request):
+    """Serve the React app for every non-API route (/my-trees, /family-tree/3, /invite/...)."""
+    index = settings.FRONTEND_DIST / "index.html"
+    if not index.is_file():
+        raise Http404("Frontend not built. Run `npm run build` in frontend/.")
+    return FileResponse(open(index, "rb"), content_type="text/html")
+
+
 urlpatterns = [
+    path("healthz/", healthz, name="healthz"),
     path("admin/", admin.site.urls),
     # OAuth popup (must be above the allauth include)
     path("accounts/popup-complete/", popup_complete, name="popup-complete"),
@@ -65,7 +82,6 @@ urlpatterns = [
 
     # Auth API
     path("api/me/", me, name="me"),
-    path("api/accounts/profile/", me),  # TEMP: old path the frontend still calls; remove once it uses /api/me/
     path("api/csrf/", csrf, name="csrf"),
     path("api/logout/", logout_view, name="logout"),
 
@@ -106,5 +122,7 @@ urlpatterns = [
     # FR-24 (proposed): an author withdraws their own pending suggestion
     path("api/trees/<int:tree_id>/suggestions/<int:pk>/withdraw/", SuggestionWithdrawView.as_view(), name="suggestion-withdraw"),
 
-   
+    # Must stay LAST: React routes. Anything not matched above (and not an API,
+    # admin, OAuth or static path) gets index.html.
+    re_path(r"^(?!api/|admin/|accounts/|static/|healthz/).*$", spa_index, name="spa"),
 ]
