@@ -25,6 +25,7 @@ jobs:
           --health-retries 10
     env:
       DJANGO_SECRET_KEY: ci-only-not-a-real-secret
+      DJANGO_DEBUG: "True"
       POSTGRES_DB: roots
       POSTGRES_USER: roots
       POSTGRES_PASSWORD: roots
