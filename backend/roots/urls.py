@@ -65,7 +65,6 @@ urlpatterns = [
 
     # Auth API
     path("api/me/", me, name="me"),
-    path("api/accounts/profile/", me),  # TEMP: old path the frontend still calls; remove once it uses /api/me/
     path("api/csrf/", csrf, name="csrf"),
     path("api/logout/", logout_view, name="logout"),
 
