@@ -20,6 +20,7 @@ from trees.views import (
     FamilyTreeDetailView,
     FamilyTreeListCreateView,
     InvitationAcceptView,
+    InvitationLinkView,
     InvitationListCreateView,
     InvitationRevokeView,
     MemberPhotoView,
@@ -92,6 +93,7 @@ urlpatterns = [
     # Invitations and collaborators (FR-10, FR-11, FR-19)
     path("api/trees/<int:tree_id>/invitations/", InvitationListCreateView.as_view(), name="invitation-list"),
     path("api/trees/<int:tree_id>/invitations/<int:pk>/", InvitationRevokeView.as_view(), name="invitation-revoke"),
+    path("api/trees/<int:tree_id>/invitations/<int:pk>/link/", InvitationLinkView.as_view(), name="invitation-link"),
     path("api/invite/<str:token>/", InvitationAcceptView.as_view(), name="invitation-accept"),
     path("api/trees/<int:tree_id>/collaborators/", CollaboratorListView.as_view(), name="collaborator-list"),
     path("api/trees/<int:tree_id>/collaborators/<int:pk>/", CollaboratorRemoveView.as_view(), name="collaborator-remove"),

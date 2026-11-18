@@ -289,7 +289,7 @@ export const fakeTreeApi = (initial: Partial<FakeDb> = {}) => {
     }
     if (rest === "invitations/" && method === "GET") return json(db.invitations[treeId] ?? []);
     if (rest === "invitations/" && method === "POST") {
-      const created = { id: nextId++, is_active: true, is_valid: true, created_at: "2026-11-10T00:00:00Z", expires_at: "2026-11-17T00:00:00Z", revoked_at: null, collaborator_count: 0 };
+      const created = { id: nextId++, is_active: true, is_valid: true, created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 7 * 86400000).toISOString(), revoked_at: null, collaborator_count: 0 };
       (db.invitations[treeId] ??= []).unshift(created);
       return json({ ...created, url: "http://localhost:5173/invite/tok123" }, 201);
     }

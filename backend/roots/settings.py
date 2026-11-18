@@ -100,6 +100,9 @@ SOCIALACCOUNT_LOGIN_ON_GET = True
 LOGIN_REDIRECT_URL = '/accounts/popup-complete/'
 
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+# Optional. 32 random bytes, URL-safe base64. Lets the Tree Owner copy active
+# invitation links again (trees/invite_crypto.py). Unset: links shown once.
+INVITATION_TOKEN_KEY = os.environ.get('INVITATION_TOKEN_KEY', '')
 ACCOUNT_LOGOUT_REDIRECT_URL = FRONTEND_URL + '/'
 CSRF_TRUSTED_ORIGINS = [FRONTEND_URL]
 
