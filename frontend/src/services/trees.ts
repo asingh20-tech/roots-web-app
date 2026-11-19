@@ -390,7 +390,10 @@ export type Invitation = {
   expires_at: string;
   revoked_at?: string | null;
   collaborator_count?: number;
-  // Only present in the create response; the token is stored hashed.
+  // True when the owner can fetch the URL again (getInvitationLink). Legacy
+  // links created before encrypted storage are false.
+  link_available?: boolean;
+  // Only present in the create response; the list never includes URLs.
   url?: string;
 };
 
@@ -399,12 +402,20 @@ export const createInvitation = (treeId: number): Promise<Invitation> =>
     method: "POST",
   });
 
-// Owner only (FR-10). Newest first; links can't be shown again (SA-2).
+// Owner only (FR-10). Newest first; no URLs (see getInvitationLink).
 export const listInvitations = (
   treeId: number,
   signal?: AbortSignal,
 ): Promise<Invitation[]> =>
   apiRequest<Invitation[]>(`/api/trees/${treeId}/invitations/`, { signal });
+
+// Owner only. 404 when the link can't be recovered (legacy, revoked, expired).
+export const getInvitationLink = (
+  treeId: number,
+  invitationId: number,
+  signal?: AbortSignal,
+): Promise<{ id: number; url: string }> =>
+  apiRequest(`/api/trees/${treeId}/invitations/${invitationId}/link/`, { signal });
 
 // People who already joined keep access; nobody new can join with it.
 export const revokeInvitation = (
