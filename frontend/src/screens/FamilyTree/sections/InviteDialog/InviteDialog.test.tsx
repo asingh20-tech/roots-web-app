@@ -14,7 +14,7 @@ beforeEach(() => {
   vi.mocked(createInvitation).mockReset();
   vi.mocked(listInvitations).mockResolvedValue([]);
   vi.mocked(createInvitation).mockResolvedValueOnce(link(1)).mockResolvedValueOnce(link(2));
-  vi.mocked(getInvitationLink).mockImplementation(async (_treeId, id) => ({ url: link(id).url }));
+  vi.mocked(getInvitationLink).mockImplementation(async (_treeId, id) => ({ id, url: link(id).url }));
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:test') });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { write: vi.fn().mockResolvedValue(undefined) } });
