@@ -22,8 +22,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 it('starts with an unshareable demo and keeps each row tied to its own full URL', async () => {
   show();
-  expect(screen.getByText('Demo preview')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Copy QR code' })).not.toBeInTheDocument();
+  expect(screen.getByText('Select an invitation to view its QR code.')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Create invitation link' }));
   await screen.findByDisplayValue(link(1).url);
   fireEvent.click(screen.getByRole('button', { name: 'Create another link' }));
@@ -65,13 +64,16 @@ it('clears a revoked invitation and returns to the demo', async () => {
   await screen.findByDisplayValue(link(1).url);
   fireEvent.click(screen.getByRole('button', { name: /Revoke the link/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Revoke link' }));
-  await screen.findByText('Demo preview');
+  await screen.findByText('Select an invitation to view its QR code.');
   expect(screen.queryByRole('button', { name: 'Copy QR code' })).not.toBeInTheDocument();
 });
 it('removes raw URL actions when the invitation expires while open', async () => {
   vi.mocked(createInvitation).mockReset().mockResolvedValue({ ...link(1), expires_at: new Date(Date.now() + 500).toISOString() });
   show(); fireEvent.click(screen.getByRole('button', { name: 'Create invitation link' }));
   await screen.findByDisplayValue(link(1).url);
-  await waitFor(() => expect(screen.getByText('Demo preview')).toBeInTheDocument(), { timeout: 2000 });
+  await waitFor(
+  () => expect(screen.getByText('Select an invitation to view its QR code.')).toBeInTheDocument(),
+  { timeout: 2000 }
+);
   expect(screen.queryByRole('button', { name: 'Copy QR code' })).not.toBeInTheDocument();
 });
