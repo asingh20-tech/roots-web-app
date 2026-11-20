@@ -43,6 +43,34 @@ afterEach(() => {
 });
 
 describe("My Trees dashboard", () => {
+  it("keeps the selected theme across tree pages and reloads, and scopes it away from invitations", async () => {
+    fakeTreeApi({ trees: [owned] });
+    const toggle = () => screen.getByRole("button", { name: "Dark mode" });
+    const home = renderAt("/");
+    expect(toggle()).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(toggle());
+    fireEvent.click(screen.getByRole("link", { name: /view tree/i }));
+    const treeLink = await screen.findByRole("link", { name: "Open Aditya Family" });
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(treeLink);
+    await screen.findByRole("heading", { name: "Aditya Family" });
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    home.unmount();
+
+    const invite = renderAt("/invite/example");
+    await screen.findByRole("button", { name: /my account/i });
+    expect(screen.queryByRole("button", { name: "Dark mode" })).toBeNull();
+    expect(document.querySelector(".roots-dark-page")).toBeNull();
+    invite.unmount();
+
+    renderAt("/family-tree/11");
+    await screen.findByRole("heading", { name: "Aditya Family" });
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(toggle());
+    expect(localStorage.getItem("roots-theme")).toBe("light");
+    localStorage.removeItem("roots-theme");
+  });
+
   it("lists every accessible tree with role, member count and date", async () => {
     fakeTreeApi({
       trees: [owned, joined],

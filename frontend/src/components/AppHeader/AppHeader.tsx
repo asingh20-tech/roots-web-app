@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthProvider";
 
+import { ThemeToggle } from "../ui/theme-toggle";
+
 type AppHeaderProps = {
   // Highlights "My Trees" on the dashboard and inside a tree.
   current?: "my-trees";
@@ -94,9 +96,10 @@ export const AppHeader = ({ current }: AppHeaderProps): JSX.Element => {
         </Link>
       </nav>
       <div
-        className="inline-flex items-center gap-[22px] relative flex-[0_0_auto]"
+        className={`inline-flex items-center relative flex-[0_0_auto] ${current ? "gap-2 sm:gap-[22px]" : "gap-[22px]"}`}
         ref={accountMenuRef}
       >
+        {current === "my-trees" && <ThemeToggle />}
         <div className="inline-flex items-center gap-2.5 relative flex-[0_0_auto]">
           <button
             className="inline-flex items-center gap-2.5 relative flex-[0_0_auto] cursor-pointer"

@@ -43,7 +43,7 @@ const HEART_ICON = "/img/relationship-heart-11.svg";
 // Member card size (memberCardClass: w-[156px] h-[132px]).
 const CARD_WIDTH = 156;
 const CARD_HEIGHT = 132;
-const LINE_COLOUR = "#a2ae9c";
+const LINE_COLOUR = "var(--tree-connector, #a2ae9c)";
 
 const clampScale = (scale: number) =>
   Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
@@ -339,7 +339,7 @@ export const FamilyTreeCanvasSection = ({
         className="absolute inset-0 opacity-40"
         aria-hidden="true"
         style={{
-          backgroundImage: "radial-gradient(#c9c8bf 1px, transparent 1px)",
+          backgroundImage: "radial-gradient(var(--tree-grid, #c9c8bf) 1px, transparent 1px)",
           backgroundSize: "24px 24px",
         }}
       />
