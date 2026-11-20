@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
+from django.utils.cache import add_never_cache_headers
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.generics import (
@@ -289,18 +290,42 @@ class MemberSearchView(ListAPIView):
 # ---------- Invitations (FR-10, FR-11, FR-19, SA-2) ----------
 
 class InvitationListCreateView(TreeScopedMixin, ListCreateAPIView):
-    """GET: this tree's links. POST: new link; the URL is shown only in this response."""
+    """GET: this tree's links (no URLs). POST: new link, URL included."""
     serializer_class = InvitationSerializer
     permission_classes = [IsAuthenticated, IsTreeOwner]
 
     def get_queryset(self):
-        return Invitation.objects.filter(tree=self.get_tree())
+        queryset = Invitation.objects.filter(tree=self.get_tree())
+        Invitation.purge_recoverable_tokens(queryset)
+        return queryset
 
     def create(self, request, *args, **kwargs):
         invitation, raw = Invitation.create_for(self.get_tree(), request.user)
         data = InvitationSerializer(invitation).data
         data["url"] = invitation_url(raw)
-        return Response(data, status=status.HTTP_201_CREATED)
+        response = Response(data, status=status.HTTP_201_CREATED)
+        add_never_cache_headers(response)  # contains a secret
+        return response
+
+
+LINK_UNAVAILABLE = "This invitation's link can't be shown again. Create a new link to share."
+
+
+class InvitationLinkView(TreeScopedMixin, APIView):
+    """GET: the full URL of an active link, for the Tree Owner only.
+    404 when it isn't recoverable (legacy, revoked, expired, key changed)."""
+    permission_classes = [IsAuthenticated, IsTreeOwner]
+
+    def get(self, request, tree_id, pk):
+        invitation = get_object_or_404(Invitation, tree=self.get_tree(), pk=pk)
+        raw = invitation.recover_token()
+        if raw is None:
+            Invitation.purge_recoverable_tokens(Invitation.objects.filter(pk=invitation.pk))
+            response = Response({"detail": LINK_UNAVAILABLE}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            response = Response({"id": invitation.pk, "url": invitation_url(raw)})
+        add_never_cache_headers(response)
+        return response
 
 
 class InvitationRevokeView(TreeScopedMixin, APIView):

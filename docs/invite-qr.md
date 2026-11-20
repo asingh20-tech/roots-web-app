@@ -61,3 +61,51 @@ Canopy framing correction: tree scale is now 45 (still larger than the original
 37.7) and its vertical offset is -0.15 to provide headroom. The flat camera scale
 and offset remain unchanged. Shared PNGs are static; an interactive recipient
 experience requires a hosted web page reached by a link.
+
+## Revision: recoverable invitation links (SA-2 amended)
+
+Previous design: only `token_hash` (SHA-256) was stored, so a link's URL could
+be shown once, at creation. Reopening the dialog left active links that could
+not be copied or turned into a QR code.
+
+Revised design (enabled only when `INVITATION_TOKEN_KEY` is set):
+
+- Validation is unchanged. `/api/invite/<token>/` still looks invitations up
+  by `token_hash`; seven-day expiry, multi-use links and revocation are unchanged.
+- New invitations also store `token_ciphertext`: version byte, 96-bit random
+  nonce and AES-256-GCM ciphertext of the raw token (`trees/invite_crypto.py`,
+  using the existing `cryptography` dependency). The associated data binds the
+  ciphertext to its tree ID and token hash. A copied ciphertext fails to decrypt
+  in another row. After decryption the token must hash back to `token_hash`.
+- The key is 32 random bytes, URL-safe base64, from the `INVITATION_TOKEN_KEY`
+  environment variable. It is separate from `DJANGO_SECRET_KEY`, and the system
+  check `trees.E001/E002` rejects a malformed key or a reused one. Generate one with
+  `python -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`.
+- Plaintext tokens are never stored. The list endpoint never returns URLs; it
+  returns `link_available`. The URL comes only from
+  `GET /api/trees/<tree>/invitations/<id>/link/`, which is limited to the Tree
+  Owner. Collaborators get 403, outsiders get 404 and anonymous users get 401/403.
+  This response and the create response send `Cache-Control: no-store`. Paths
+  contain only numeric IDs, and error bodies contain no token material.
+- Revoking a link sets `token_ciphertext` to NULL straight away. Expired links are
+  purged when the owner lists or requests links, and by
+  `manage.py purge_invitation_tokens`. Schedule that command (for example hourly)
+  so expired ciphertext doesn't stay in idle trees.
+- Without a key, nothing recoverable is stored and behaviour matches the old
+  hash-only design. A URL can be copied only during the session that created it.
+- Rotating or losing the key makes existing links unrecoverable. They still
+  redeem, but the UI shows them as "original link unavailable". Links created
+  before this change (migration 0006) can never be recovered.
+
+Residual risk: someone who has both a database dump and `INVITATION_TOKEN_KEY`
+can recover active invitation tokens. Store the key only in the deployment
+secret store, never in the database or repository. The exposure window is the
+link's seven-day lifetime.
+
+Dialog behaviour: each card can be selected (`selectedInvitationId`). The
+selected panel shows that link's own QR, URL field, Copy link, Copy QR, Download
+QR and Revoke. Rows keep the quick actions: Copy link, View QR and Revoke. Active
+cards are listed first, then expired and revoked history, newest first. URLs are
+fetched on demand and cached in memory by ID. Late responses can't fill a
+different selection, and expiry or revocation clears the URL and preview
+immediately. No demo QR is rendered before a selection.

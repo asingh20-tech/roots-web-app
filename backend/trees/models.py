@@ -24,6 +24,8 @@ from django.db import connection, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
+from . import invite_crypto
+
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # IN SRS FR-6 / FR-18: 10 MiB
 DOCUMENT_EXTENSIONS = ["pdf", "jpg", "jpeg", "png"]
 PHOTO_EXTENSIONS = ["jpg", "jpeg", "png"]
@@ -148,8 +150,11 @@ class FamilyTree(models.Model):
 class Invitation(models.Model):
     """Reusable, revocable invitation link (FR-10, FR-11, FR-19, SA-2).
 
-    Only a SHA-256 hash of the token is stored. The raw token is returned
-    once by create_for() and placed in the URL. Links expire after 7 days.
+    Links are validated only by a SHA-256 hash of the token. The raw token is
+    returned by create_for() and placed in the URL. Links expire after 7 days.
+    When INVITATION_TOKEN_KEY is set, the token is also kept encrypted
+    (token_ciphertext) so the Tree Owner can copy an active link again; it is
+    cleared on revocation and expiry. See invite_crypto.py.
     """
 
     tree = models.ForeignKey(FamilyTree, on_delete=models.CASCADE, related_name="invitations")
@@ -162,6 +167,8 @@ class Invitation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)
+    # AES-GCM sealed raw token; NULL for legacy, revoked and expired links.
+    token_ciphertext = models.BinaryField(null=True, blank=True, editable=False)
 
     class Meta:
         db_table = "invitation"
@@ -181,13 +188,36 @@ class Invitation(models.Model):
     @classmethod
     def create_for(cls, tree, created_by, expires_in=INVITATION_LIFETIME):
         raw = secrets.token_urlsafe(32)  # 43 chars, 256 bits (SA-2: >= 32 chars)
+        token_hash = cls.hash_token(raw)
         invitation = cls.objects.create(
             tree=tree,
             created_by=created_by,
-            token_hash=cls.hash_token(raw),
+            token_hash=token_hash,
+            token_ciphertext=invite_crypto.encrypt_token(raw, tree.pk, token_hash),
             expires_at=timezone.now() + expires_in,
         )
         return invitation, raw
+
+    @classmethod
+    def purge_recoverable_tokens(cls, queryset=None):
+        """Drop recoverable token material from revoked and expired links."""
+        queryset = cls.objects.all() if queryset is None else queryset
+        return queryset.filter(token_ciphertext__isnull=False).filter(
+            Q(is_active=False) | Q(revoked_at__isnull=False) | Q(expires_at__lte=timezone.now())
+        ).update(token_ciphertext=None)
+
+    @property
+    def link_available(self):
+        return self.is_valid and self.token_ciphertext is not None
+
+    def recover_token(self):
+        """The raw token for a still-valid link, or None (legacy, revoked,
+        expired, key missing/rotated). Callers must be the Tree Owner."""
+        if not self.link_available:
+            return None
+        return invite_crypto.decrypt_token(
+            self.token_ciphertext, self.tree_id, self.token_hash, self.hash_token
+        )
 
     @classmethod
     def find_valid(cls, raw_token):
@@ -204,7 +234,8 @@ class Invitation(models.Model):
     def revoke(self):
         self.is_active = False
         self.revoked_at = timezone.now()
-        self.save(update_fields=["is_active", "revoked_at"])
+        self.token_ciphertext = None
+        self.save(update_fields=["is_active", "revoked_at", "token_ciphertext"])
 
 
 class TreeCollaborator(models.Model):

@@ -174,14 +174,16 @@ class RelationshipSerializer(ModelCleanMixin, serializers.ModelSerializer):
 # ---------- Collaboration (FR-10 .. FR-14, FR-21) ----------
 
 class InvitationSerializer(serializers.ModelSerializer):
-    """Only a hash is stored (SA-2), so 'url' is returned once, on create."""
+    """'url' is returned only on create and by the Owner-only link endpoint.
+    'link_available' says whether that endpoint can recover it (never the URL)."""
     is_valid = serializers.BooleanField(read_only=True)
+    link_available = serializers.BooleanField(read_only=True)
     collaborator_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Invitation
-        fields = ["id", "is_active", "is_valid", "created_at", "expires_at", "revoked_at",
-                  "collaborator_count"]
+        fields = ["id", "is_active", "is_valid", "link_available", "created_at", "expires_at",
+                  "revoked_at", "collaborator_count"]
         read_only_fields = fields
 
     def get_collaborator_count(self, obj):

@@ -2,35 +2,39 @@ import { useEffect, useRef, useState } from 'react';
 import { secondaryButtonClass } from '../../../../components/Dialog/Dialog';
 import { invitationQrPng } from './inviteQr';
 
+// Shows the selected invitation's QR. The animated WebGPU tree lives in a
+// sandboxed same-origin frame; reduced motion, missing WebGPU or a renderer
+// failure fall back to a flat PNG. Changing `url` re-targets the same frame
+// (no reload), and results for a previous URL are ignored.
 export function InviteQrPreview({ url, onArtwork }: { url?: string; onArtwork?: (url: string, image: string) => void }) {
   const artworkCallback = useRef(onArtwork);
   artworkCallback.current = onArtwork;
-  const currentContent = useRef(url ?? "https://example.com/");
-  currentContent.current = url ?? "https://example.com/";
-  const content = url ?? 'https://example.com/';
+  const currentContent = useRef(url);
+  currentContent.current = url;
   const frame = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(0);
   const [flat, setFlat] = useState(false);
 
   const [fallback, setFallback] = useState(false);
-  const [image, setImage] = useState('');
+  const [image, setImage] = useState<{ url: string; src: string } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
     const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
-    const update = () => setFallback(!('gpu' in navigator) || !!motion?.matches);
+    const update = () => setFallback(current => current || !('gpu' in navigator) || !!motion?.matches);
     update();
-    motion?.addEventListener('change', update);
-    return () => motion?.removeEventListener('change', update);
+    motion?.addEventListener?.('change', update);
+    return () => motion?.removeEventListener?.('change', update);
   }, []);
   useEffect(() => {
+    setFlat(false); setImage(null); setError(false);
+    if (!url) return;
     let active = true;
     let objectUrl = '';
-    setFlat(false); setImage(''); setError(false);
-    invitationQrPng(content).then(blob => {
-      if (active) { objectUrl = URL.createObjectURL(blob); setImage(objectUrl); }
+    invitationQrPng(url).then(blob => {
+      if (active) { objectUrl = URL.createObjectURL(blob); setImage({ url, src: objectUrl }); }
     }).catch(() => { if (active) setError(true); });
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [content]);
+  }, [url]);
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       if (event.origin !== location.origin || event.source !== frame.current?.contentWindow ||
@@ -38,7 +42,7 @@ export function InviteQrPreview({ url, onArtwork }: { url?: string; onArtwork?: 
       if (event.data.type === 'roots-qr-ready') setReady(value => value + 1);
       if (event.data.type === 'roots-qr-rendered') clearTimeout(timeout);
       if (event.data.type === 'roots-qr-error') setFallback(true);
-      if (event.data.type === 'roots-qr-artwork' && event.data.url === currentContent.current &&
+      if (event.data.type === 'roots-qr-artwork' && currentContent.current && event.data.url === currentContent.current &&
           typeof event.data.image === 'string' && event.data.image.startsWith('data:image/png;base64,') &&
           event.data.image.length < 8000000) artworkCallback.current?.(event.data.url, event.data.image);
       if (event.data.type === 'roots-qr-toggle') { setFlat(value => !value); }
@@ -48,20 +52,31 @@ export function InviteQrPreview({ url, onArtwork }: { url?: string; onArtwork?: 
     return () => { clearTimeout(timeout); removeEventListener('message', receive); };
   }, []);
   useEffect(() => {
-    if (ready) frame.current?.contentWindow?.postMessage({ type: 'roots-qr-config', url: content, flat }, location.origin);
-  }, [ready, content, flat]);
+    if (ready && url) frame.current?.contentWindow?.postMessage({ type: 'roots-qr-config', url, flat }, location.origin);
+  }, [ready, url, flat]);
+
+  if (!url) {
+    return <section aria-label="Invitation QR preview"
+      className="flex min-h-[200px] items-center justify-center rounded-xl border border-dashed border-[#dedcd2] bg-[#f6f1e7] p-5 text-center [font-family:'Inter',Helvetica] text-[13px] text-[#7b8177]">
+      Select an invitation to view its QR code.
+    </section>;
+  }
+  // Never show a PNG rendered for a previously selected URL.
+  const flatSrc = image?.url === url ? image.src : '';
   return <section aria-label="Invitation QR preview" className="rounded-xl border border-[#dedcd2] bg-[#f6f1e7] p-3">
-    <p className="text-center text-sm font-semibold text-[#355b43]">{url ? 'Invitation QR code' : 'Demo preview'}</p>
-    <div className="relative mx-auto h-[240px] w-full max-w-[360px] overflow-hidden">
+    <div className="relative mx-auto aspect-[3/2] max-h-[240px] w-full max-w-[360px] overflow-hidden">
       {!fallback && <iframe ref={frame} src="/invite-qr.html" title="Animated invitation tree" tabIndex={-1}
         sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" className="h-full w-full border-0" />}
-      {fallback && image && <button type="button" aria-label={fallback ? 'Flat QR code' : 'Back to tree'}
-        onClick={() => { if (!fallback) { setFlat(false); } }} className="absolute inset-0 flex items-center justify-center bg-[#f6f1e7]">
-        <img src={image} alt={url ? 'Invitation QR code' : 'Demo QR code for example.com'} className="h-[232px] max-w-full object-contain" />
-      </button>}
-      {error && <p role="alert">QR preview unavailable. You can still copy the invitation link.</p>}
+      {fallback && flatSrc && <img src={flatSrc} alt="Invitation QR code"
+        className="absolute inset-0 m-auto h-full max-w-full object-contain [image-rendering:pixelated]" />}
+      {fallback && !flatSrc && !error && <p className="absolute inset-0 flex items-center justify-center text-[13px] text-[#7b8177]">Preparing QR code…</p>}
+      {error && <p role="alert" className="absolute inset-0 flex items-center justify-center p-4 text-center text-[13px] text-[#8a3f2c]">QR preview unavailable. You can still copy the invitation link.</p>}
     </div>
-    <div className="flex justify-center">{!fallback && <button type="button" className={secondaryButtonClass} onClick={() => { setFlat(value => !value); }}>{flat ? 'Back to tree' : 'Show QR code'}</button>}</div>
-    <p className="mt-2 text-center text-xs text-[#7b8177]">{fallback ? 'Flat preview · animation unavailable or reduced motion enabled.' : 'Tap the tree to view its QR code.'} {url ? 'A saved QR grants the same access as this link.' : 'Example only. Create a link to share an invitation.'}</p>
+    {!fallback && <div className="mt-2 flex justify-center">
+      <button type="button" className={secondaryButtonClass} onClick={() => { setFlat(value => !value); }}>{flat ? 'Back to tree' : 'Show QR code'}</button>
+    </div>}
+    <p className="mt-2 text-center [font-family:'Inter',Helvetica] text-xs text-[#7b8177]">
+      {fallback ? 'Flat preview · animation unavailable or reduced motion is on.' : 'Tap the tree or use the button to see the QR code.'} A saved QR grants the same access as this link.
+    </p>
   </section>;
 }

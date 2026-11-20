@@ -142,6 +142,19 @@
     transform: scale(0.97);
   }
 }
+/* Content that replaces other content in place (selected invitation
+   details, a newly created row) settles in instead of teleporting. */
+.roots-swap {
+  transition:
+    opacity 200ms var(--roots-ease-out),
+    transform 200ms var(--roots-ease-out);
+}
+@starting-style {
+  .roots-swap {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
 /* Pressable controls give instant feedback. */
 .roots-press {
   transition:
@@ -171,9 +184,13 @@
   .roots-menu {
     transition-property: opacity;
   }
+  .roots-swap {
+    transition-property: opacity;
+  }
   @starting-style {
     .roots-modal-panel,
-    .roots-menu {
+    .roots-menu,
+    .roots-swap {
       transform: none;
     }
   }
