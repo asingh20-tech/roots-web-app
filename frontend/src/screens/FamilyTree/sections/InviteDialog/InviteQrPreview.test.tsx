@@ -32,21 +32,21 @@ it('uses a static frame URL and validates ready/toggle messages', async () => {
   expect(screen.getByRole('button', { name: 'Show QR code' })).toBeInTheDocument();
 });
 it('falls back locally on renderer failure', async () => {
-  render(<InviteQrPreview />);
+  render(<InviteQrPreview url="https://roots.example/invite/A" />);
   message(screen.getByTitle('Animated invitation tree') as HTMLIFrameElement, 'roots-qr-error');
-  await screen.findByAltText('Demo QR code for example.com');
+  await screen.findByAltText('Invitation QR code');
   expect(screen.queryByTitle('Animated invitation tree')).not.toBeInTheDocument();
 });
 it('does not mount the animated renderer for reduced motion', async () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-  render(<InviteQrPreview />);
-  await screen.findByAltText('Demo QR code for example.com');
+  render(<InviteQrPreview url="https://roots.example/invite/A"/>);
+  await screen.findByAltText('Invitation QR code');
   expect(screen.queryByTitle('Animated invitation tree')).not.toBeInTheDocument();
 });
 it('discards pending image generation when closed during initialization', async () => {
   let finish!: (blob: Blob) => void;
   vi.mocked(invitationQrPng).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-  const view = render(<InviteQrPreview />);
+  const view = render(<InviteQrPreview url="https://roots.example/invite/A"/>);
   view.unmount();
   await act(async () => finish(new Blob(['png'])));
   await waitFor(() => expect(URL.createObjectURL).not.toHaveBeenCalled());
