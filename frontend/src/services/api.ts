@@ -7,8 +7,10 @@
 
 // Where Django itself is served; used for the OAuth popup and to verify the
 // origin of its postMessage. Override with VITE_BACKEND_ORIGIN in production.
+// In production Django serves this app, so the backend is the page's own origin.
 export const BACKEND_ORIGIN: string =
-  import.meta.env.VITE_BACKEND_ORIGIN ?? "http://localhost:8000";
+  import.meta.env.VITE_BACKEND_ORIGIN ??
+  (import.meta.env.DEV ? "http://localhost:8000" : window.location.origin);
 
 export class ApiError extends Error {
   readonly status: number;

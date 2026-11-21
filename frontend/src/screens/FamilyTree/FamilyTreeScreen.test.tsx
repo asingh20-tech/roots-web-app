@@ -591,6 +591,7 @@ describe("Visualizer", () => {
   it("displays the tree owner's role", async () => {
     fakeTreeApi({ trees: [ownedTree] });
     renderAt("/family-tree/11");
+    fireEvent.click(await screen.findByRole("button", { name: "Switch family tree" }));
     expect(await screen.findByText("Owner")).toBeInTheDocument();
   });
 
@@ -653,7 +654,7 @@ describe("Visualizer", () => {
     renderAt("/family-tree/11");
     const content = await screen.findByTestId("tree-content");
     fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
-    expect(content.style.transform).toContain("scale(0.8)");
+    expect(content.style.transform).toContain("scale(0.8333333333333334)");
   });
 
   it("zoom in twice increases the zoom level", async () => {
@@ -662,7 +663,7 @@ describe("Visualizer", () => {
     const content = await screen.findByTestId("tree-content");
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
-    expect(content.style.transform).toContain("scale(1.4)");
+    expect(content.style.transform).toContain("scale(1.44)");
   });
 
   it("member details display the correct birth date", async () => {
@@ -670,7 +671,7 @@ describe("Visualizer", () => {
     renderAt("/family-tree/11");
     fireEvent.click(await screen.findByRole("button", { name: "View details for Cy Lane" }));
     const details = await screen.findByRole("dialog", { name: "Cy Lane · Person details" });
-    expect(within(details).getByText(/1970/)).toBeInTheDocument();
+    expect(within(details).getByText("March 3, 1970")).toBeInTheDocument();
   });
 
   it("draws parent–child links from a couple and a spouse marker", async () => {

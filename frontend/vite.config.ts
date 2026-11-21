@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), mode === "development" && screenGraphPlugin()],
   build: { rollupOptions: { input: { main: "index.html", inviteQr: "invite-qr.html" } } },
   publicDir: "./static",
-  base: "./",
+  base: "/", // absolute asset URLs so deep links like /family-tree/3 load correctly
   //proxy api request to the backend (Django)
   server: {
     port: 5173,
